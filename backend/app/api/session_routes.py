@@ -25,7 +25,8 @@ def create_session(payload: dict) -> ApiResponse:
         raise HTTPException(status_code=400, detail="user_id required")
     session = SessionState(session_id=f"sess_{uuid4().hex[:8]}", user_id=user_id)
     SESSIONS[session.session_id] = session
-    return ApiResponse(data={"session": session.model_dump(), "hr_opening": "你好，我们这边给你的总包是 12k*14，你怎么看？"})
+    opening = orchestrator.text_engine.generate_opening()
+    return ApiResponse(data={"session": session.model_dump(), "hr_opening": opening})
 
 
 @router.post("/sessions/{session_id}/text-turn")

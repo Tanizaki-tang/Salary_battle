@@ -63,6 +63,36 @@ class TextBattleEngine(TextBattleContract):
         )
 
     # ------------------------------------------------------------------
+    #  公开方法
+    # ------------------------------------------------------------------
+
+    def generate_opening(self) -> str:
+        """调用 LLM 生成 HR 开场白，每次随机选一种风格。失败返回兜底。"""
+        import random
+
+        styles = [
+            "你是HR，用轻松自然的语气开场，打个招呼后把话题引到薪资上。40字以内。",
+            "你是HR，用正式专业的语气开场，简要介绍薪资结构后询问对方期望。40字以内。",
+            "你是HR，直接开门见山，不寒暄，单刀直入谈薪资数字。40字以内。",
+            "你是HR，先夸一下候选人的能力，再顺势引出薪资话题。40字以内。",
+            "你是HR，用比较坦诚的语气，说明公司预算有限但愿意协商。40字以内。",
+        ]
+        prompt = random.choice(styles)
+        try:
+            resp = self._client.chat.completions.create(
+                model=DEEPSEEK_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.9,
+                max_tokens=60,
+            )
+            reply = (resp.choices[0].message.content or "").strip()
+            if reply:
+                return reply
+        except Exception:
+            pass
+        return "你好，我们这边给你的总包是 12k*14，你怎么看？"
+
+    # ------------------------------------------------------------------
     #  Contract 实现
     # ------------------------------------------------------------------
 
