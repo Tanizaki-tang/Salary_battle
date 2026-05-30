@@ -1,23 +1,29 @@
 from __future__ import annotations
 
-import os
-import tempfile
-from pathlib import Path
+import logging
+import time
 from uuid import uuid4
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, HTTPException
 
 from app.modules.flow_controller.orchestrator import GameFlowOrchestrator
-from app.modules.voice_battle.speech_gateway import AsrPipelineError, transcribe_audio
-from app.modules.voice_battle.tts_gateway import synthesize_wav_base64
-from app.prompt.hr_personality import apply_personality_patience, get_personality_meta, list_personalities, resolve_personality_id
+from app.prompt.hr_personality import (
+    apply_personality_patience,
+    build_personality_opening,
+    get_personality_meta,
+    list_personalities,
+    pick_random_personality_id,
+    resolve_personality_id,
+)
 from app.repositories.scene_repository import load_scene, resolve_scene_id
-from app.shared_types.game_types import ApiResponse, ConversationMessage, SessionState, TextTurnPayload, VoiceTurnPayload
+from app.service.llm_service import llm_latency_enabled
+from app.shared_types.game_types import ApiResponse, ConversationMessage, SessionState, TextTurnPayload
 
 
 router = APIRouter(prefix="/api/v1", tags=["game"])
 orchestrator = GameFlowOrchestrator()
 SESSIONS: dict[str, SessionState] = {}
+logger = logging.getLogger(__name__)
 
 
 @router.get("/health")
@@ -38,10 +44,21 @@ def create_session(payload: dict) -> ApiResponse:
     user_name = (payload.get("user_name") or "").strip() or "候选人"
     scene_id = resolve_scene_id(scene_id=payload.get("scene_id"), role_id=payload.get("role_id"))
     role_id = payload.get("role_id") or "role_backend"
-    hr_personality_id = resolve_personality_id(payload.get("hr_personality_id"))
+    raw_personality = payload.get("hr_personality_id")
+    if raw_personality is None or str(raw_personality).strip().lower() in {"", "random"}:
+        hr_personality_id = pick_random_personality_id()
+    else:
+        hr_personality_id = resolve_personality_id(str(raw_personality))
     personality_meta = get_personality_meta(hr_personality_id)
     scene_context = load_scene(scene_id)
     initial = scene_context.initial_state
+    opening = build_personality_opening(
+        user_name=user_name,
+        personality_id=hr_personality_id,
+        scene_opening_line=scene_context.opening_line,
+        salary_offer=scene_context.salary_anchor.hr_initial_offer,
+    )
+    opening_with_name = opening if opening.startswith(f"{user_name}，") else f"{user_name}，{opening}"
     session = SessionState(
         session_id=f"sess_{uuid4().hex[:8]}",
         user_id=user_id,
@@ -57,7 +74,7 @@ def create_session(payload: dict) -> ApiResponse:
         conversation_history=[
             ConversationMessage(
                 role="hr",
-                content=f"{user_name}，{scene_context.opening_line}",
+                content=opening_with_name,
                 round_index=0,
             )
         ],
@@ -67,7 +84,7 @@ def create_session(payload: dict) -> ApiResponse:
     return ApiResponse(
         data={
             "session": session.model_dump(),
-            "hr_opening": f"{user_name}，{scene_context.opening_line}",
+            "hr_opening": opening_with_name,
             "scene_meta": scene_context.meta.model_dump(),
             "hr_personality_meta": {
                 "personality_id": personality_meta.personality_id,
@@ -84,43 +101,17 @@ def text_turn(session_id: str, payload: TextTurnPayload) -> ApiResponse:
     session = SESSIONS.get(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="session not found")
+    started = time.perf_counter()
     next_state, turn_result, flow = orchestrator.run_text_turn(session, payload)
     SESSIONS[session_id] = next_state
+    if llm_latency_enabled():
+        logger.info(
+            "LATENCY_API_TEXT_TURN session_id=%s round=%s total_ms=%.1f",
+            session_id,
+            session.round_index,
+            (time.perf_counter() - started) * 1000,
+        )
     return ApiResponse(data={"result": turn_result.model_dump(), "session": next_state.model_dump(), "flow": flow.model_dump()})
-
-
-@router.post("/sessions/{session_id}/voice-turn")
-async def voice_turn(session_id: str, audio_file: UploadFile = File(...)) -> ApiResponse:
-    session = SESSIONS.get(session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="session not found")
-    suffix = Path(audio_file.filename or "").suffix or ".wav"
-    mime_type = (audio_file.content_type or "audio/wav").strip()
-    tmp_path = ""
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, prefix="salary_battle_audio_") as tmp:
-            tmp_path = tmp.name
-            tmp.write(await audio_file.read())
-        voice_payload = VoiceTurnPayload(audio_path=tmp_path, mime_type=mime_type)
-        next_state, voice_result, flow = orchestrator.run_voice_turn(session, voice_payload)
-    except AsrPipelineError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    finally:
-        if tmp_path:
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
-
-    SESSIONS[session_id] = next_state
-    return ApiResponse(
-        data={
-            "asr": {"transcript": voice_result.asr_text, "confidence": voice_result.confidence},
-            "result": voice_result.turn_result.model_dump(),
-            "session": next_state.model_dump(),
-            "flow": flow.model_dump(),
-        }
-    )
 
 
 @router.post("/sessions/{session_id}/settle")
@@ -132,35 +123,3 @@ def settle(session_id: str) -> ApiResponse:
     session.status = "settled"
     SESSIONS[session_id] = session
     return ApiResponse(data={"result": settle_result.model_dump(), "persist": persist_result.model_dump()})
-
-
-@router.post("/speech/asr")
-async def asr(audio_file: UploadFile = File(...)) -> ApiResponse:
-    suffix = Path(audio_file.filename or "").suffix or ".wav"
-    mime_type = (audio_file.content_type or "audio/wav").strip()
-    tmp_path = ""
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, prefix="salary_battle_asr_") as tmp:
-            tmp_path = tmp.name
-            tmp.write(await audio_file.read())
-        asr_result = transcribe_audio(VoiceTurnPayload(audio_path=tmp_path, mime_type=mime_type))
-        return ApiResponse(data={**asr_result, "file": audio_file.filename, "mime_type": mime_type})
-    except AsrPipelineError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    finally:
-        if tmp_path:
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
-
-
-@router.post("/speech/tts")
-def tts(payload: dict) -> ApiResponse:
-    text = str(payload.get("text", "")).strip()
-    if not text:
-        raise HTTPException(status_code=400, detail="text required")
-    try:
-        return ApiResponse(data=synthesize_wav_base64(text))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc

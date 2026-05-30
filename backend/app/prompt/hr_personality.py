@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import random
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
@@ -178,3 +179,53 @@ def get_personality_prompt(personality_id: str | None) -> str:
         "优先参考「话术示例库」中的单句与对话风格，不可跳出人格。"
     )
     return "\n".join(sections)
+
+
+def pick_random_personality_id() -> str:
+    return random.choice(list(_PERSONALITY_REGISTRY.keys()))
+
+
+def build_personality_opening(
+    *,
+    user_name: str,
+    personality_id: str | None,
+    scene_opening_line: str,
+    salary_offer: float,
+) -> str:
+    meta = get_personality_meta(personality_id)
+    prompt_file = PERSONALITIES_DIR / meta.filename
+    body = prompt_file.read_text(encoding="utf-8") if prompt_file.exists() else ""
+
+    offer_str = str(int(salary_offer)) if float(salary_offer).is_integer() else str(salary_offer)
+    offer_token = f"{offer_str}K"
+
+    candidates: list[str] = []
+    in_opening = False
+    for raw in body.splitlines():
+        line = raw.strip()
+        if not line:
+            if in_opening and candidates:
+                break
+            continue
+        if line.startswith("#"):
+            if in_opening and candidates:
+                break
+            in_opening = "开场风格" in line
+            continue
+        if in_opening and line.startswith("-"):
+            text = line.lstrip("-").strip()
+            if text:
+                candidates.append(text)
+
+    opening = random.choice(candidates) if candidates else ""
+    if opening:
+        opening = opening.replace("月薪X", f"月薪{offer_token}").replace("薪资这块是X", f"薪资这块是{offer_token}")
+        opening = opening.replace("X——", f"{offer_token}——").replace("X，", f"{offer_token}，").replace("X", offer_token)
+        opening = opening.strip().strip("“”\"'「」")
+    elif scene_opening_line.strip():
+        opening = scene_opening_line.strip()
+        opening = opening.replace("{salary_offer}", offer_token).replace("{user_name}", user_name)
+    else:
+        opening = f"感谢你来面试！我们这边初步给到月薪{offer_token}，你这边怎么看？"
+
+    return opening

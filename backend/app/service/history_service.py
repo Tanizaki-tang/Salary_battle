@@ -21,7 +21,7 @@ TARGET_SCHEMA: dict[str, str] = {
     "delta_misjudge_count": "int",
     "trap_id": "string|null",
     "should_end": "bool",
-    "next_phase_hint": "text|voice|end",
+    "next_phase_hint": "text|end",
     "reason": "string",
 }
 
@@ -103,6 +103,8 @@ def build_agent_turn_payload(
             "场景与人格已在 system prompt 中，请勿重复引用静态背景。"
             "先阅读 history.turns 与 history.recent_hr_replies，"
             "确保 hr_reply 与近期 HR 话术明显不同，再输出 JSON。"
+            "若 recent_hr_replies 已明确录用意愿（offer/决定录用/欢迎加入等），"
+            "禁止在本轮 hr_reply 或 should_end/reason 中输出未录用、谈崩、收回 offer 等矛盾结果。"
         ),
         "player_text": player_text.strip(),
         "history": history,

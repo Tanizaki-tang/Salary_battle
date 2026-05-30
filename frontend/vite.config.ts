@@ -7,6 +7,7 @@ const frontendRoot = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(frontendRoot, "..");
 
 export default defineConfig({
+  envDir: projectRoot,
   plugins: [vue()],
   resolve: {
     alias: {

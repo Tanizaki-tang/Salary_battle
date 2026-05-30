@@ -29,3 +29,23 @@ def load_config_from_env() -> LLMConfig:
     model = os.getenv("BAILIAN_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
     timeout = float(os.getenv("BAILIAN_TIMEOUT_SECONDS", "30"))
     return LLMConfig(api_key=api_key, base_url=base_url, model=model, timeout=timeout)
+
+
+def get_card_game_dialogue_mode() -> str:
+    """full=问题+6选项全 LLM；lite=仅 HR 台词 LLM、选项用模板（默认，更快）。"""
+    mode = os.getenv("CARD_GAME_DIALOGUE_MODE", "lite").strip().lower()
+    if mode in {"full", "lite", "off"}:
+        return mode
+    return "lite"
+
+
+def qwen_disable_thinking_extra(model: str) -> dict[str, object]:
+    """Qwen3 系列默认可能走思考链，关闭可显著降低首 token 延迟。"""
+    if "qwen3" in model.lower():
+        return {"enable_thinking": False}
+    return {}
+
+
+def llm_latency_enabled() -> bool:
+    value = os.getenv("LLM_LATENCY_LOG", "").strip().lower()
+    return value in {"1", "true", "yes", "on"}

@@ -1,11 +1,7 @@
 fastapi
 uvicorn
 pydantic
-python-multipart
 openai
 langchain
 langchain-openai
-numpy
-sherpa-onnx
 python-dotenv
-websockets

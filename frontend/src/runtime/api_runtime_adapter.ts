@@ -10,24 +10,20 @@ export const apiRuntimeAdapter: BattleRuntimeAdapter = {
     return res.data.data.personalities as HrPersonalityMeta[];
   },
   async createSession(userId, sceneId, roleId, userName, hrPersonalityId) {
-    const res = await client.post("/api/v1/sessions", {
+    const body: Record<string, string> = {
       user_id: userId,
-      user_name: userName,
-      scene_id: sceneId,
-      role_id: roleId,
-      hr_personality_id: hrPersonalityId,
-    });
+      user_name: userName || "",
+      scene_id: sceneId || "",
+      role_id: roleId || "",
+    };
+    if (hrPersonalityId) {
+      body.hr_personality_id = hrPersonalityId;
+    }
+    const res = await client.post("/api/v1/sessions", body);
     return res.data.data;
   },
   async textTurn(sessionId, payload) {
     const res = await client.post(`/api/v1/sessions/${sessionId}/text-turn`, payload);
-    return res.data.data;
-  },
-  async voiceTurn(sessionId, payload) {
-    const form = new FormData();
-    if (payload.audio_file) form.append("audio_file", payload.audio_file);
-    else form.append("audio_file", new File([new Blob(["RIFF....WAVE"])], "voice.wav", { type: "audio/wav" }));
-    const res = await client.post(`/api/v1/sessions/${sessionId}/voice-turn`, form);
     return res.data.data;
   },
   async settle(sessionId) {

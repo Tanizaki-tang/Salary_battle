@@ -1,0 +1,51 @@
+<template>
+  <label class="form-field">
+    职位：
+    <select v-model="sceneId">
+      <option v-for="scene in SCENE_OPTIONS" :key="scene.sceneId" :value="scene.sceneId">
+        {{ scene.label }}
+      </option>
+    </select>
+  </label>
+  <p class="form-hint">HR 面试官性格将在开局时随机分配，并在对话界面标注。</p>
+</template>
+
+<script setup lang="ts">
+import { ref } from "vue";
+import { SCENE_OPTIONS, findSceneOption } from "../../constants/scenes";
+
+export type StartSessionParams = {
+  userName: string;
+  sceneId: string;
+  roleId: string;
+};
+
+const sceneId = ref("scene_001");
+
+function reset() {
+  sceneId.value = "scene_001";
+}
+
+function getSessionParams(): StartSessionParams {
+  const scene = findSceneOption(sceneId.value) || SCENE_OPTIONS[0];
+  return {
+    userName: "候选人",
+    sceneId: scene.sceneId,
+    roleId: scene.roleId,
+  };
+}
+
+defineExpose({
+  reset,
+  getSessionParams,
+});
+</script>
+
+<style scoped>
+.form-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #888;
+}
+</style>

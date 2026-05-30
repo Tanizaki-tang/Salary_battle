@@ -1,1 +1,0 @@
-"""Voice battle module."""

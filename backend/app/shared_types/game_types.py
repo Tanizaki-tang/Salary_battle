@@ -6,8 +6,7 @@ from pydantic import BaseModel, Field
 
 
 StrategyType = Literal["strong_push", "probe", "concede", "counter_pressure"]
-NextPhase = Literal["text", "voice", "end"]
-InputMode = Literal["text", "voice"]
+NextPhase = Literal["text", "end"]
 
 
 class ApiResponse(BaseModel):
@@ -103,12 +102,6 @@ class TextTurnPayload(BaseModel):
     player_text: Optional[str] = None
 
 
-class VoiceTurnPayload(BaseModel):
-    audio_path: str
-    input_mode: InputMode = "voice"
-    mime_type: str = "audio/wav"
-
-
 class TurnResult(BaseModel):
     hr_reply: str
     delta: TurnDelta
@@ -117,6 +110,8 @@ class TurnResult(BaseModel):
     next_round: int
     inferred_strategy: str = "probe"
     trap_id: str | None = None
+    hr_bubble_entrance: Optional[Literal["fade", "slam", "slide"]] = None
+    player_bubble_entrance: Optional[Literal["fade", "slam", "slide"]] = None
 
 
 class FlowDecision(BaseModel):
@@ -145,10 +140,28 @@ class AgentTurnDecision(BaseModel):
     player_text_used: str = ""
 
 
-class VoiceTurnResult(BaseModel):
-    asr_text: str
-    confidence: float
-    turn_result: TurnResult
+class ScoreBreakdown(BaseModel):
+    dq: int
+    td: int
+    wh: int
+    si: int
+
+
+class OfferPackage(BaseModel):
+    equity_ratio: float
+    social_security_base: str
+    housing_fund_ratio: str
+    overtime_policy: str
+    working_hours_agreement: str
+
+
+class SettleStats(BaseModel):
+    traps_identified: int
+    traps_total: int = 5
+    trap_labels: list[str] = Field(default_factory=list)
+    law_citation_count: int = 0
+    strategy_count: int = 0
+    final_patience: int = 0
 
 
 class SettleResult(BaseModel):
@@ -156,6 +169,13 @@ class SettleResult(BaseModel):
     final_score: int
     grade: str
     review_tip: str
+    title: str = ""
+    medal: str = ""
+    scene_name: str = ""
+    summary: str = ""
+    breakdown: ScoreBreakdown | None = None
+    offer: OfferPackage | None = None
+    stats: SettleStats | None = None
 
 
 class PersistResult(BaseModel):

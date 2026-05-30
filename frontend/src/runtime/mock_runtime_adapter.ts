@@ -41,7 +41,9 @@ export const mockRuntimeAdapter: BattleRuntimeAdapter = {
     const resolvedScene = sceneId || roleToScene[roleId || "role_backend"] || "scene_001";
     const initial = sceneInitial[resolvedScene] || sceneInitial.scene_001;
     const resolvedName = (userName || "").trim() || "候选人";
-    const personalityId = hrPersonalityId || "hr_smiling_tiger";
+    const personalityId =
+      hrPersonalityId ||
+      MOCK_PERSONALITIES[Math.floor(Math.random() * MOCK_PERSONALITIES.length)]!.personality_id;
     const personalityMeta = MOCK_PERSONALITIES.find((p) => p.personality_id === personalityId) || MOCK_PERSONALITIES[4];
     const session: SessionState = {
       session_id: `sess_mock_${Date.now()}`,
@@ -73,6 +75,13 @@ export const mockRuntimeAdapter: BattleRuntimeAdapter = {
     session.hr_patience += node.delta.hr_patience;
     session.info_exposure += node.delta.info_exposure;
     session.trap_count += node.delta.trap_count;
+    const bubbleByStrategy: Record<string, { hr: string; player: string }> = {
+      strong_push: { hr: "slam", player: "slide" },
+      probe: { hr: "fade", player: "slide" },
+      concede: { hr: "fade", player: "fade" },
+      counter_pressure: { hr: "slam", player: "slide" },
+    };
+    const bubbles = bubbleByStrategy[key] || { hr: "fade", player: "slide" };
     return {
       result: {
         hr_reply: `${session.user_name}，${node.hr_reply}`,
@@ -80,27 +89,48 @@ export const mockRuntimeAdapter: BattleRuntimeAdapter = {
         is_trap_hit: node.delta.trap_count > 0,
         is_game_over: session.round_index >= session.max_round,
         next_round: session.round_index,
+        hr_bubble_entrance: bubbles.hr,
+        player_bubble_entrance: bubbles.player,
       },
       session,
-    };
-  },
-  async voiceTurn(sessionId) {
-    const base = await this.textTurn(sessionId, { strategy: "probe" });
-    return {
-      asr: { transcript: "我想确认薪资区间", confidence: 0.88 },
-      flow: { next_phase: "text", reason: "mock_voice_done", should_end: false },
-      ...base,
     };
   },
   async settle(sessionId) {
     const session = sessions.get(sessionId)!;
     const final_score = Math.max(0, Math.min(100, Math.round(session.hr_patience * 0.5 + (100 - session.info_exposure) * 0.3 + session.trap_count * 10)));
+    const dq = Math.min(100, Math.round((final_score * 0.9)));
+    const td = Math.min(100, session.trap_count * 25 + 10);
+    const wh = Math.max(0, 100 - session.info_exposure);
+    const si = Math.min(100, 50 + session.trap_count * 12);
+    const title = final_score >= 85 ? "老练求职者" : final_score >= 70 ? "稳健求职者" : "入门求职者";
+    const medal = final_score >= 95 ? "🥇" : final_score >= 85 ? "🥈" : final_score >= 70 ? "🥉" : "📋";
+    const salaryK = Math.round((resultRules.base_salary + final_score * 20) / 1000);
     return {
       result: {
         final_score,
         final_salary: resultRules.base_salary + final_score * 20,
         grade: final_score >= 80 ? "A" : final_score >= 65 ? "B" : "C",
         review_tip: resultRules.review_tip,
+        title,
+        medal,
+        scene_name: "初创公司后端岗",
+        summary: `你接受了 ${salaryK}K 的 offer。在初创公司后端岗，这是一个相当不错的结果。`,
+        breakdown: { dq, td, wh, si },
+        offer: {
+          equity_ratio: 0,
+          social_security_base: session.trap_count >= 2 ? "全额工资基数" : "按标准缴纳",
+          housing_fund_ratio: session.trap_count >= 2 ? "7%" : "未约定",
+          overtime_policy: session.trap_count >= 1 ? "单独计算" : "含在总包",
+          working_hours_agreement: wh >= 80 ? "明确约定" : "未约定",
+        },
+        stats: {
+          traps_identified: session.trap_count,
+          traps_total: 5,
+          trap_labels: ["期权画饼", "加班费打包"].slice(0, session.trap_count),
+          law_citation_count: 0,
+          strategy_count: 2,
+          final_patience: session.hr_patience,
+        },
       },
     };
   },

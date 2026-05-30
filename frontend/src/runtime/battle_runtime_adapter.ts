@@ -19,6 +19,7 @@ export type SessionState = {
   hr_patience: number;
   info_exposure: number;
   trap_count: number;
+  current_salary_offer?: number;
   scene_context?: Record<string, unknown>;
 };
 
@@ -28,12 +29,54 @@ export type TurnResult = {
   is_trap_hit: boolean;
   is_game_over: boolean;
   next_round: number;
+  /** 横屏 HR 气泡出场：fade | slam | slide */
+  hr_bubble_entrance?: string;
+  /** 横屏玩家气泡出场：fade | slam | slide */
+  player_bubble_entrance?: string;
 };
 
 export type FlowDecision = {
-  next_phase: "text" | "voice" | "end";
+  next_phase: "text" | "end";
   reason: string;
   should_end: boolean;
+};
+
+export type ScoreBreakdown = {
+  dq: number;
+  td: number;
+  wh: number;
+  si: number;
+};
+
+export type OfferPackage = {
+  equity_ratio: number;
+  social_security_base: string;
+  housing_fund_ratio: string;
+  overtime_policy: string;
+  working_hours_agreement: string;
+};
+
+export type SettleStats = {
+  traps_identified: number;
+  traps_total: number;
+  trap_labels: string[];
+  law_citation_count: number;
+  strategy_count: number;
+  final_patience: number;
+};
+
+export type SettleResultView = {
+  final_score: number;
+  final_salary: number;
+  grade: string;
+  review_tip: string;
+  title?: string;
+  medal?: string;
+  scene_name?: string;
+  summary?: string;
+  breakdown?: ScoreBreakdown;
+  offer?: OfferPackage;
+  stats?: SettleStats;
 };
 
 export interface BattleRuntimeAdapter {
@@ -51,11 +94,5 @@ export interface BattleRuntimeAdapter {
     hr_personality_meta?: HrPersonalityMeta;
   }>;
   textTurn(sessionId: string, payload: { strategy?: string; player_text?: string }): Promise<{ result: TurnResult; session: SessionState; flow?: FlowDecision }>;
-  voiceTurn(sessionId: string, payload: { audio_file?: File; audio_path?: string }): Promise<{
-    asr: { transcript: string; confidence: number };
-    result: TurnResult;
-    session: SessionState;
-    flow?: FlowDecision;
-  }>;
-  settle(sessionId: string): Promise<{ result: { final_score: number; final_salary: number; grade: string; review_tip: string } }>;
+  settle(sessionId: string): Promise<{ result: SettleResultView }>;
 }
