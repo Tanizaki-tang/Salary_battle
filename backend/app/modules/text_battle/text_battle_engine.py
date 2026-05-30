@@ -4,6 +4,7 @@ from openai import OpenAI
 
 from app.config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL, LLM_TIMEOUT
 from app.contracts.text_battle_contract import TextBattleContract
+from app.modules.text_battle.scenario_loader import load_hr_system_prompt, load_opening_template
 from app.shared_types.game_types import SessionState, TextTurnPayload, TurnDelta, TurnResult
 
 
@@ -11,48 +12,57 @@ from app.shared_types.game_types import SessionState, TextTurnPayload, TurnDelta
 # Prompt 模板
 # ---------------------------------------------------------------------------
 
-STRATEGY_CLASSIFY_SYSTEM = """你是一个薪资谈判游戏的策略分类器。根据玩家发言，判断其策略类型。
+STRATEGY_CLASSIFY_SYSTEM = """你是薪资谈判游戏的策略分类器。根据玩家发言判断策略类型。
 
 策略定义：
-- strong_push: 强硬拒绝、坚持高要求、表达不满、直接施压
-- probe: 试探询问、获取信息、了解细节、确认条款
-- concede: 让步妥协、表示理解配合、接受条件、缓和气氛
-- counter_pressure: 反向施压、提及竞争offer、强调自身价值、拿市场行情说事
+- strong_push: 直接表达不满、要求涨薪、展示筹码（"太低了""我有其他offer""市场价是XX"）
+- probe: 通过提问获取信息，不直接表态（"能说说薪资结构吗""绩效怎么算""期权具体多少"）
+- concede: 表达认同后再提小要求（"我可以考虑，不过""如果XX就更好了""我理解公司限制"）
+- counter_pressure: 把问题抛回给对方，要求对方先亮底牌（"你们的预算范围是""最高能给到多少"）
+- legal_quote: 引用法律条款支撑诉求（提到劳动法、劳动合同法、社保法、加班费标准等）
+- trap_detect: 准确识破HR话术中的陷阱并指出来（"你这是想套我的底牌""期权未上市价值为零""按标准来是什么意思"）
 
-你必须且只能回复以下四个英文标签之一：strong_push, probe, concede, counter_pressure
+你必须且只能回复以下英文标签之一：strong_push, probe, concede, counter_pressure, legal_quote, trap_detect
 不要回复中文，不要回复任何其他内容。"""
 
-HR_REPLY_SYSTEM = """你是薪资谈判游戏中的HR。根据当前谈判局势，生成符合人设的回复。
 
-## 你的人设
-- 专业、有底线，但愿意推动沟通
-- 你不是来吵架的，是来寻找双方都能接受的方案
-- 你有薪资弹性空间，但不会无底线让步
+def _load_scenario_prompt() -> str:
+    """加载场景 System Prompt。失败时返回简化版兜底。"""
+    try:
+        return load_hr_system_prompt()
+    except Exception:
+        return """你是薪资谈判游戏中的HR。
+- 姓名：张敏，A轮AI初创公司HR负责人，热情亲和、圆滑老练
+- 策略：用期权、成长空间、公司前景替代现金
+- 预算：初始报价15K，实际最高22K，每一步让步都要显得"困难"
+- 规则：不先报上限、先套对方期望、耐心<30时强硬、第4轮起推进成交
+- 控制在80字以内，只返回回复文本"""
 
-## 回复要求
-- 语气与耐心值对应：耐心>60时友好开放，耐心30-60时务实中性，耐心<30时直接强硬
-- 回复紧扣玩家的发言内容，不要跑题
-- 控制在80字以内
-- 只返回回复文本，不要加任何前缀说明"""
+
+HR_REPLY_SYSTEM = _load_scenario_prompt()
 
 
 class TextBattleEngine(TextBattleContract):
     """文本谈判引擎 — 调用 DeepSeek LLM 进行策略分类和 HR 回复生成。"""
 
-    # ---- 策略 → delta 映射（规则驱动） ----
+    # ---- 策略 → delta 映射（满意度, 暴露度, 陷阱数） ----
     BASE_DELTA: dict[str, tuple[int, int, int]] = {
-        "strong_push":      (-10, -3, 0),
-        "probe":            (-3,  -8, 0),
-        "concede":          (8,    5, 0),
-        "counter_pressure": (-6,  -6, 1),
+        "strong_push":      (-10,  8, 0),
+        "probe":            (-3,   3, 0),
+        "concede":          (6,   12, 0),
+        "counter_pressure": (-5,  -8, 0),
+        "legal_quote":      (-3,  -1, 0),
+        "trap_detect":      (-5,  -6, 1),
     }
 
     # ---- LLM 不可用时的兜底回复 ----
     _FALLBACK_REPLIES: dict[str, str] = {
-        "strong_push":      "我理解你的期望，但预算确实有一定限制，我们尽量在范围内协商。",
-        "probe":            "你可以具体说说你想了解的方向，我尽量给你解释清楚。",
-        "concede":          "好的，感谢你的理解，我们继续往下推进吧。",
-        "counter_pressure": "市场竞争的情况我了解，不过我们也有自己的优势可以综合考虑。",
+        "strong_push":      "我理解你的期望，但坦白说作为A轮公司，现金确实没法跟大厂比。不过我们期权池比较充裕，你要不要了解一下？",
+        "probe":            "你说得挺细的，这样很好。具体你比较关注哪一块？薪资结构、期权、还是福利？",
+        "concede":          "很高兴你能认可我们。那我帮你争取一下好的方案，你对哪方面比较在意？",
+        "counter_pressure": "嗯…这个岗位的预算区间大概在12K到18K之间，具体看你最终的综合package。",
+        "legal_quote":      "你说的对，法律规定的我们肯定会遵守。能在合同里明确的我们都可以写进去。",
+        "trap_detect":      "哈哈你挺专业的。好吧那我直说了，我们坦诚一点，你对薪资的具体期望是多少？",
     }
 
     def __init__(self) -> None:
@@ -67,15 +77,14 @@ class TextBattleEngine(TextBattleContract):
     # ------------------------------------------------------------------
 
     def generate_opening(self) -> str:
-        """调用 LLM 生成 HR 开场白，每次随机选一种风格。失败返回兜底。"""
+        """调用 LLM 生成 HR 开场白。失败返回兜底。"""
         import random
 
         styles = [
-            "你是HR，用轻松自然的语气开场，打个招呼后把话题引到薪资上。40字以内。",
-            "你是HR，用正式专业的语气开场，简要介绍薪资结构后询问对方期望。40字以内。",
-            "你是HR，直接开门见山，不寒暄，单刀直入谈薪资数字。40字以内。",
-            "你是HR，先夸一下候选人的能力，再顺势引出薪资话题。40字以内。",
-            "你是HR，用比较坦诚的语气，说明公司预算有限但愿意协商。40字以内。",
+            "你是张敏，A轮AI初创公司HR负责人。热情亲和地开场，提一下15K*14薪的offer，问问对方想法。40字以内。",
+            "你是张敏，HR负责人。先夸一下候选人的面试表现，再自然地报出15K*14的offer。40字以内。",
+            "你是张敏，A轮创业公司HR。坦诚地说公司虽然薪水不是最高的，但成长空间大，报出15K*14。40字以内。",
+            "你是张敏，HR负责人。用轻松的语气恭喜候选人，然后报出15K*14薪的offer，询问看法。40字以内。",
         ]
         prompt = random.choice(styles)
         try:
@@ -90,7 +99,7 @@ class TextBattleEngine(TextBattleContract):
                 return reply
         except Exception:
             pass
-        return "你好，我们这边给你的总包是 12k*14，你怎么看？"
+        return load_opening_template()
 
     # ------------------------------------------------------------------
     #  Contract 实现
@@ -101,43 +110,26 @@ class TextBattleEngine(TextBattleContract):
 
         优先级：payload.strategy 显式值 > LLM 分类 > 兜底 probe。
         """
-        # 1) 显式策略：直接信任前端传值
         if text_payload.strategy:
             return text_payload.strategy
 
-        # 2) 有自由文本：交给 LLM 分类
         if text_payload.player_text:
             strategy = self._classify_with_llm(text_payload.player_text)
             if strategy:
                 return strategy
 
-        # 3) 兜底
         return "probe"
 
     def run_text_turn(
-        self, session_state: SessionState, text_payload: TextTurnPayload) -> TurnResult:
-        """执行一个文本回合（修正了游戏结束条件与回合计数）。"""
-        # 1) 解析出最终策略标签
+        self, session_state: SessionState, text_payload: TextTurnPayload,
+    ) -> TurnResult:
+        """执行一个文本回合。"""
         strategy = self.parse_strategy(text_payload)
-        
-        # 2) 生成大模型/兜底 HR 回复
         hr_reply = self._generate_hr_reply(strategy, text_payload.player_text or "", session_state)
-        
-        # 3) 计算当前回合的增量变化
         delta = self._compute_delta(strategy, session_state)
-        
-        # 4) 计算这一轮扣减/增加后，临时的实际分值
-        # 接口设计中 delta.hr_patience 是负数 (例如 -10)，所以用加法
         current_calculated_patience = session_state.hr_patience + delta.hr_patience
-        
-        # 5) 综合判定游戏是否结束
-        # 结束条件 1: 耐心值耗尽（小于等于 0）
-        # 结束条件 2: 当前回合已经达到了最大回合上限
         is_over = (current_calculated_patience <= 0) or (session_state.round_index >= session_state.max_round)
-        
-        # 6) 计算下一轮的数字（不需要 min 强行封顶，让其自然 +1，依靠 is_game_over 控制流转）
         next_round_index = session_state.round_index + 1
-        
         return TurnResult(
             hr_reply=hr_reply,
             delta=delta,
@@ -194,20 +186,18 @@ class TextBattleEngine(TextBattleContract):
     @staticmethod
     def _clean_strategy_label(raw: str) -> str | None:
         """从 LLM 原始输出中提取有效策略标签，支持模糊匹配。"""
-        valid = {"strong_push", "probe", "concede", "counter_pressure"}
+        valid = {"strong_push", "probe", "concede", "counter_pressure", "legal_quote", "trap_detect"}
         text = raw.strip().lower()
-        # 精确匹配
         for label in valid:
             if label in text:
                 return label
-        # 模糊匹配：LLM 可能只返回部分词如 "strong", "counter" 等
         fuzzy: dict[str, str] = {
-            "strong": "strong_push",
-            "push": "strong_push",
+            "strong": "strong_push", "push": "strong_push",
             "probe": "probe",
             "concede": "concede",
-            "counter": "counter_pressure",
-            "pressure": "counter_pressure",
+            "counter": "counter_pressure", "pressure": "counter_pressure",
+            "legal": "legal_quote", "quote": "legal_quote",
+            "trap": "trap_detect", "detect": "trap_detect",
         }
         for keyword, label in fuzzy.items():
             if keyword in text:
@@ -218,24 +208,27 @@ class TextBattleEngine(TextBattleContract):
     def _build_hr_prompt(strategy: str, player_text: str, state: SessionState) -> str:
         patience_desc = "友好" if state.hr_patience > 60 else ("一般" if state.hr_patience > 30 else "不耐烦")
         strategy_cn = {
-            "strong_push": "强硬施压",
-            "probe": "试探询问",
-            "concede": "让步妥协",
-            "counter_pressure": "反向施压",
+            "strong_push": "强势施压",
+            "probe": "迂回试探",
+            "concede": "配合妥协",
+            "counter_pressure": "反问逼牌",
+            "legal_quote": "法条引用",
+            "trap_detect": "识破陷阱",
         }.get(strategy, "未知")
         return (
             f"当前状态：第 {state.round_index} / {state.max_round} 轮，"
             f"耐心值 {state.hr_patience}/100（{patience_desc}），"
             f"信息暴露度 {state.info_exposure}/100。\n"
+            f"当前报价：15K/月，14薪。\n"
             f"玩家策略：{strategy_cn}\n"
             f"玩家发言：{player_text}\n\n"
-            f"请生成HR的回复："
+            f"请以张敏的身份生成HR的回复："
         )
 
     def _compute_delta(self, strategy: str, state: SessionState) -> TurnDelta:
         """计算本回合状态增量，后期回合波动放大。"""
         base_p, base_e, base_t = self.BASE_DELTA.get(strategy, self.BASE_DELTA["probe"])
-        scale = 1.0 + (state.round_index - 1) * 0.25  # round1=1.0, round5=2.0
+        scale = 1.0 + (state.round_index - 1) * 0.25
         return TurnDelta(
             hr_patience=int(base_p * scale),
             info_exposure=int(base_e * scale),

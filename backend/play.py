@@ -21,8 +21,8 @@ def main():
         user_id="player1",
         status="ongoing",
         round_index=1,
-        max_round=5,
-        hr_patience=70,
+        max_round=10,
+        hr_patience=90,
         info_exposure=20,
         trap_count=0,
     )
