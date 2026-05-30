@@ -3,9 +3,11 @@ from __future__ import annotations
 from typing import Final
 
 from app.prompt.hr_personality import get_personality_prompt
+from app.prompt.scenario_loader import load_hr_system_prompt
 from app.prompt.traps_prompt import get_traps_prompt
 
 DEFAULT_SCENE_ID: Final[str] = "scene_001"
+GM_SCENE_IDS: Final[frozenset[str]] = frozenset({"scene_001", "scenario_001"})
 
 _SCENE_PROMPTS: dict[str, str] = {
     "scene_001": (
@@ -26,8 +28,17 @@ _SCENE_PROMPTS: dict[str, str] = {
 }
 
 
+def _resolve_scene_id(scene_id: str | None) -> str:
+    return (scene_id or "").strip() or DEFAULT_SCENE_ID
+
+
 def get_scene_prompt(scene_id: str | None) -> str:
-    sid = (scene_id or "").strip() or DEFAULT_SCENE_ID
+    sid = _resolve_scene_id(scene_id)
+    if sid in GM_SCENE_IDS:
+        try:
+            return load_hr_system_prompt()
+        except Exception:
+            pass
     return _SCENE_PROMPTS.get(sid, _SCENE_PROMPTS[DEFAULT_SCENE_ID])
 
 
@@ -38,7 +49,12 @@ def get_character_prompt(scene_id: str | None) -> str:
 
 def build_system_prompt(base_prompt: str, scene_id: str | None, personality_id: str | None = None) -> str:
     """把场景、HR人格、陷阱规则与通用规则拼接为最终 system prompt。"""
+    sid = _resolve_scene_id(scene_id)
     scene_prompt = get_scene_prompt(scene_id)
     personality_prompt = get_personality_prompt(personality_id)
-    traps_prompt = get_traps_prompt(scene_id)
-    return f"{scene_prompt}\n\n{personality_prompt}\n\n{traps_prompt}\n\n{base_prompt}"
+    if sid in GM_SCENE_IDS:
+        traps_prompt = ""
+    else:
+        traps_prompt = get_traps_prompt(scene_id)
+    parts = [scene_prompt, personality_prompt, traps_prompt, base_prompt]
+    return "\n\n".join(p for p in parts if p.strip())

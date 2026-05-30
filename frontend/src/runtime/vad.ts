@@ -28,14 +28,14 @@ function readEnvNumber(key: string, fallback: number): number {
 
 export function loadVadConfig(): VadConfig {
   return {
-    threshold: readEnvNumber("VITE_VAD_THRESHOLD", 0.022),
-    silenceMs: readEnvNumber("VITE_VAD_SILENCE_MS", 900),
-    minSpeechMs: readEnvNumber("VITE_VAD_MIN_SPEECH_MS", 500),
+    threshold: readEnvNumber("VITE_VAD_THRESHOLD", 0.012),
+    silenceMs: readEnvNumber("VITE_VAD_SILENCE_MS", 700),
+    minSpeechMs: readEnvNumber("VITE_VAD_MIN_SPEECH_MS", 100),
     pollIntervalMs: readEnvNumber("VITE_VAD_POLL_MS", 50),
-    attackMs: readEnvNumber("VITE_VAD_ATTACK_MS", 280),
-    calibrationMs: readEnvNumber("VITE_VAD_CALIBRATION_MS", 900),
-    noiseMultiplier: readEnvNumber("VITE_VAD_NOISE_MULTIPLIER", 3.2),
-    hysteresisRatio: readEnvNumber("VITE_VAD_HYSTERESIS", 0.62),
+    attackMs: readEnvNumber("VITE_VAD_ATTACK_MS", 120),
+    calibrationMs: readEnvNumber("VITE_VAD_CALIBRATION_MS", 600),
+    noiseMultiplier: readEnvNumber("VITE_VAD_NOISE_MULTIPLIER", 1.4),
+    hysteresisRatio: readEnvNumber("VITE_VAD_HYSTERESIS", 0.55),
   };
 }
 
@@ -65,6 +65,7 @@ export class EnergyVadMonitor {
   start(stream: MediaStream): void {
     this.stop();
     this.audioContext = new AudioContext();
+    void this.audioContext.resume();
     this.analyser = this.audioContext.createAnalyser();
     this.analyser.fftSize = 512;
     this.analyser.smoothingTimeConstant = 0.82;
@@ -96,6 +97,10 @@ export class EnergyVadMonitor {
       this.audioContext = null;
     }
     this.phase = "idle";
+  }
+
+  resumeAudio(): void {
+    void this.audioContext?.resume();
   }
 
   setEnabled(value: boolean): void {

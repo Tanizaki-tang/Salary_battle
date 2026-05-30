@@ -25,6 +25,10 @@ TARGET_SCHEMA: dict[str, str] = {
     "reason": "string",
 }
 
+STATE_TARGET_SCHEMA: dict[str, str] = {
+    key: value for key, value in TARGET_SCHEMA.items() if key != "hr_reply"
+}
+
 
 def _as_session_state(session_state: SessionState | dict[str, Any]) -> SessionState:
     if isinstance(session_state, SessionState):
@@ -104,6 +108,54 @@ def build_agent_turn_payload(
         "history": history,
         "negotiation_state": negotiation_state,
         "target_schema": target_schema or TARGET_SCHEMA,
+    }
+    if base_turn_result is not None:
+        payload["base_turn_result"] = base_turn_result
+    return payload
+
+
+def build_agent_reply_payload(
+    session_state: SessionState | dict[str, Any],
+    player_text: str,
+    *,
+    max_history_turns: int = 20,
+) -> dict[str, Any]:
+    """阶段 1：流式口语回复，仅传对话上下文。"""
+    history = extract_conversation_history(session_state, max_turns=max_history_turns)
+    negotiation_state = extract_negotiation_state(session_state)
+    return {
+        "instruction": (
+            "场景与人格已在 system prompt 中。"
+            "阅读 history.recent_hr_replies，确保本轮口语回复与近期 HR 话术明显不同。"
+            "只输出你要对候选人说的话，2-4 句，口语化。"
+        ),
+        "player_text": player_text.strip(),
+        "history": history,
+        "negotiation_state": negotiation_state,
+    }
+
+
+def build_agent_state_payload(
+    session_state: SessionState | dict[str, Any],
+    player_text: str,
+    hr_reply: str,
+    base_turn_result: dict[str, Any] | None = None,
+    *,
+    max_history_turns: int = 20,
+) -> dict[str, Any]:
+    """阶段 2：根据玩家输入与 HR 已说回复，输出状态增量 JSON。"""
+    history = extract_conversation_history(session_state, max_turns=max_history_turns)
+    negotiation_state = extract_negotiation_state(session_state)
+    payload: dict[str, Any] = {
+        "instruction": (
+            "HR 回复已生成，请勿改写 hr_reply。"
+            "根据玩家输入、HR 回复与谈判状态，输出状态修正 JSON，只返回 JSON。"
+        ),
+        "player_text": player_text.strip(),
+        "hr_reply": hr_reply.strip(),
+        "history": history,
+        "negotiation_state": negotiation_state,
+        "target_schema": STATE_TARGET_SCHEMA,
     }
     if base_turn_result is not None:
         payload["base_turn_result"] = base_turn_result

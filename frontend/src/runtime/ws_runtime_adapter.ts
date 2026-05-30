@@ -3,6 +3,7 @@ export type WsServerEvent =
   | "server.asr_partial"
   | "server.asr_final"
   | "server.asr_skipped"
+  | "server.hr_opening"
   | "server.hr_delta"
   | "server.hr_audio_chunk"
   | "server.turn_done"

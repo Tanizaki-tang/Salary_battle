@@ -8,3 +8,4 @@ langchain-openai
 numpy
 sherpa-onnx
 python-dotenv
+websockets

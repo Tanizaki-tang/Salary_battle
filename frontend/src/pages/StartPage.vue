@@ -9,7 +9,7 @@
       <div class="incoming-bg">
         <div class="incoming-label">Boss直聘 · 面试电话</div>
 
-        <div class="incoming-avatar">{{ selectedPersonality?.emoji || "👩‍💼" }}</div>
+        <img class="incoming-avatar" :src="bossAvatarUrl" alt="HR" />
         <div class="incoming-name">{{ selectedPersonality?.name || "HR" }}</div>
         <div class="incoming-company">灵创科技</div>
         <div class="incoming-role">{{ selectedPersonality?.tagline || "HR负责人 · A轮AI初创公司" }}</div>
@@ -60,6 +60,16 @@
             <span class="incoming-btn-label">{{ loading ? "创建中" : "接听" }}</span>
           </div>
         </div>
+
+        <button
+          v-if="showVoiceDebug"
+          class="debug-voice-btn"
+          type="button"
+          :disabled="loading"
+          @click="startVoiceDebug"
+        >
+          {{ loading ? "创建中…" : "调试：直接进入语音通话" }}
+        </button>
       </div>
     </div>
   </section>
@@ -68,6 +78,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
+import { bossAvatarUrl } from "../assets/avatars";
 import type { HrPersonalityMeta } from "../runtime/battle_runtime_adapter";
 import { runtimeAdapter, runtimeMode } from "../runtime";
 
@@ -88,6 +99,9 @@ const userName = ref("");
 const hrPersonalityId = ref("hr_smiling_tiger");
 const personalities = ref<HrPersonalityMeta[]>(FALLBACK_PERSONALITIES);
 const mode = runtimeMode;
+const showVoiceDebug =
+  import.meta.env.DEV ||
+  String(import.meta.env.VITE_DEBUG_VOICE_ENTRY || "").toLowerCase() === "true";
 
 const selectedPersonality = computed(() =>
   personalities.value.find((p) => p.personality_id === hrPersonalityId.value)
@@ -111,27 +125,45 @@ function resetSelections() {
   error.value = "";
 }
 
+async function createAndStoreSession() {
+  const userId = `user_${Date.now()}`;
+  const normalizedName = userName.value.trim();
+  const data = await runtimeAdapter.createSession(
+    userId,
+    sceneId.value,
+    roleId.value,
+    normalizedName,
+    hrPersonalityId.value
+  );
+  sessionStorage.setItem("currentSession", JSON.stringify(data.session));
+  sessionStorage.setItem("hrOpening", data.hr_opening);
+  if (data.hr_personality_meta) {
+    sessionStorage.setItem("hrPersonalityMeta", JSON.stringify(data.hr_personality_meta));
+  }
+  return data;
+}
+
 async function startGame() {
   loading.value = true;
   error.value = "";
   try {
-    const userId = `user_${Date.now()}`;
-    const normalizedName = userName.value.trim();
-    const data = await runtimeAdapter.createSession(
-      userId,
-      sceneId.value,
-      roleId.value,
-      normalizedName,
-      hrPersonalityId.value
-    );
-    sessionStorage.setItem("currentSession", JSON.stringify(data.session));
-    sessionStorage.setItem("hrOpening", data.hr_opening);
-    if (data.hr_personality_meta) {
-      sessionStorage.setItem("hrPersonalityMeta", JSON.stringify(data.hr_personality_meta));
-    }
+    const data = await createAndStoreSession();
     router.push(`/battle/${data.session.session_id}`);
   } catch (e) {
     error.value = `创建对局失败：${String(e)}`;
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function startVoiceDebug() {
+  loading.value = true;
+  error.value = "";
+  try {
+    const data = await createAndStoreSession();
+    router.push(`/voice/${data.session.session_id}`);
+  } catch (e) {
+    error.value = `创建语音对局失败：${String(e)}`;
   } finally {
     loading.value = false;
   }
@@ -165,12 +197,9 @@ async function startGame() {
   width: 96px;
   height: 96px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #e8f5e9, #a5d6a7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 44px;
+  object-fit: cover;
   margin-top: 28px;
+  background: #f0f0f0;
 }
 .incoming-name { font-size: 24px; font-weight: 700; margin-top: 18px; }
 .incoming-company { color: rgba(255,255,255,0.7); font-size: 14px; margin-top: 3px; }
@@ -221,5 +250,20 @@ async function startGame() {
 .incoming-btn-accept { background: #00c2a2; }
 .incoming-btn-decline { background: rgba(255,255,255,0.16); color: #ff6b6b; }
 .incoming-btn-label { color: rgba(255,255,255,0.6); font-size: 11px; }
+.debug-voice-btn {
+  margin-top: 12px;
+  margin-bottom: 8px;
+  width: 100%;
+  max-width: 280px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px dashed rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 12px;
+  cursor: pointer;
+}
+.debug-voice-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.debug-voice-btn:not(:disabled):hover { background: rgba(0, 194, 162, 0.15); border-color: rgba(0, 194, 162, 0.5); }
 .error { margin-top: 8px; color: #ff9aa2; font-size: 12px; }
 </style>

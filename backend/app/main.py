@@ -1,5 +1,10 @@
+from pathlib import Path
+
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 from app.api.session_routes import router as session_router
 from app.api.voice_verify_routes import router as voice_verify_router

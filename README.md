@@ -55,6 +55,29 @@ Salary_battle/
 
 原则：模块间通过 `shared_types` 约定数据结构，编排逻辑集中在 `flow_controller/orchestrator.py`。
 
+### GM 场景 Prompt（scene_001）
+
+`scene_001`（初创公司后端岗）使用 Game Master Markdown 作为 HR Agent 的 system prompt 主体，文件位于：
+
+- `backend/scenarios/scene_001_gm.md`
+
+加载逻辑：`backend/app/prompt/scenario_loader.py` → `character_prompt.get_scene_prompt()`。
+
+包含章节：HR 人设、场景设定、意图分类、陷阱机制、数值管理、回复指南、Few-Shot 示例对话。`scene_001` 会跳过 `traps_prompt.py` 以避免重复占 token；`scene_002/003` 仍用短场景描述 + traps。
+
+可选环境变量：
+
+```env
+SCENARIO_GM_PATH=D:\path\to\custom_gm.md
+```
+
+验收测试：
+
+```bash
+cd backend
+python tests/test_scenario_loader.py
+```
+
 ## 快速启动
 
 ## 1) 启动后端
@@ -65,45 +88,27 @@ python -m pip install -r requirements.txt
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-### 语音 ASR 配置（sherpa-onnx）
+### 语音 ASR（实时 / 百炼 Paraformer）
 
-后端语音回合、WebSocket 实时语音与 `/api/v1/speech/asr` 使用 **offline paraformer** 离线识别。
+WebSocket 实时通话可切换为“真流式”ASR：浏览器以 PCM 帧上行，后端转发到百炼 Paraformer 实时 ASR，并把增量结果下发为 `server.asr_partial`。
 
-**不要用 HuggingFace 的 streaming zipformer**（`models/models` 或 `git clone huggingface.co/...streaming...`），与当前 `OfflineRecognizer` API 不兼容。
+#### 1) 后端环境变量
 
-#### 1) 下载模型（GitHub Releases，推荐）
+- `REALTIME_ASR_PROVIDER=bailian`
+- `DASHSCOPE_API_KEY=你的百炼 API Key`
+- `BAILIAN_ASR_MODEL=paraformer-realtime-v2`（浏览器麦克风推荐；`paraformer-realtime-8k-v2` 仅支持 8000Hz）
+- `BAILIAN_ASR_SAMPLE_RATE=16000`
 
-```powershell
-cd D:\School\HackSong\Salary_battle\models
-curl.exe -L -o paraformer-zh.tar.bz2 https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-2023-09-14.tar.bz2
-tar -xjf paraformer-zh.tar.bz2
-```
+#### 2) 前端环境变量
 
-解压后目录：`models/sherpa-onnx-paraformer-zh-2023-09-14/`（含 `tokens.txt`、`model.int8.onnx`、`test_wavs/`）
+- `VITE_REALTIME_ASR_PCM=true`
+- `VITE_REALTIME_ASR_SAMPLE_RATE=16000`
 
-#### 2) 安装 FFmpeg（浏览器 webm 转 wav 必装）
-
-- 下载：https://www.gyan.dev/ffmpeg/builds/ （`ffmpeg-release-essentials.zip`）
-- 将 `bin` 加入 PATH，或设置 `FFMPEG_PATH=D:\path\to\ffmpeg.exe`
-
-#### 3) 环境变量
-
-- `SHERPA_ONNX_MODEL_TYPE=paraformer`
-- `SHERPA_ONNX_MODEL_DIR=D:\School\HackSong\Salary_battle\models\sherpa-onnx-paraformer-zh-2023-09-14`
-- 可选：`SHERPA_ONNX_PROVIDER=cpu`、`SHERPA_ONNX_NUM_THREADS=1`、`FFMPEG_PATH=`
-
-#### 4) 语音链路验证接口
+#### 3) 诊断接口
 
 ```bash
-# 诊断 ASR / FFmpeg / LLM 是否就绪
 curl http://127.0.0.1:8000/api/v1/voice/verify
-
-# 用模型自带测试音频验证识别
-curl -X POST http://127.0.0.1:8000/api/v1/voice/verify-realtime ^
-  -F "audio_file=@models/sherpa-onnx-paraformer-zh-2023-09-14/test_wavs/0.wav"
 ```
-
-`ready: true` 且 `verify-realtime` 返回非空 `transcript` 即表示语音链路可用。
 
 ### 语音 TTS 配置（sherpa-onnx / VITS）
 

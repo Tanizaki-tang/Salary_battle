@@ -16,7 +16,7 @@
         </div>
 
         <div class="boss-company-card">
-          <div class="boss-company-logo">🤖</div>
+          <img class="boss-company-logo" :src="bossAvatarUrl" alt="HR" />
           <div class="boss-company-info">
             <div class="boss-company-name">{{ session?.scene_context?.meta?.scene_name || "灵创科技" }}</div>
             <div class="boss-company-meta">A轮 · AI/大模型 · 50-100人</div>
@@ -43,16 +43,18 @@
           <template v-for="(m, idx) in messages" :key="idx">
             <div v-if="m.type === 'system'" class="boss-system-msg">{{ m.text }}</div>
             <div v-else class="boss-msg" :class="m.role === 'hr' ? 'hr' : 'me'">
-              <div class="boss-msg-avatar" :class="m.role === 'hr' ? 'hr-avatar' : 'me-avatar'">
-                {{ m.role === "hr" ? "👩‍💼" : "🧑" }}
-              </div>
+              <img
+                class="boss-msg-avatar"
+                :src="m.role === 'hr' ? bossAvatarUrl : playerAvatarUrl"
+                :alt="m.role === 'hr' ? 'HR' : '我'"
+              />
               <div class="boss-msg-content">
                 <div class="boss-msg-bubble">{{ m.text }}</div>
               </div>
             </div>
           </template>
           <div v-if="waitingHr" class="boss-msg hr">
-            <div class="boss-msg-avatar hr-avatar">👩‍💼</div>
+            <img class="boss-msg-avatar" :src="bossAvatarUrl" alt="HR" />
             <div class="boss-msg-content">
               <div class="boss-msg-bubble boss-typing-bubble">
                 <span></span><span></span><span></span>
@@ -62,7 +64,6 @@
         </div>
 
         <div class="boss-input-area">
-          <div class="boss-input-mic">🎤</div>
           <input
             v-model="customText"
             class="boss-input-field"
@@ -83,6 +84,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { bossAvatarUrl, playerAvatarUrl } from "../assets/avatars";
 import { runtimeAdapter } from "../runtime";
 import type { SessionState } from "../runtime/battle_runtime_adapter";
 
@@ -177,7 +179,7 @@ const salaryText = computed(() => {
 .boss-header-name { font-size: 16px; font-weight: 600; text-align: center; flex: 1; }
 .boss-header-actions { width: 28px; text-align: right; }
 .boss-company-card { background: #fff; padding: 12px 16px; border-bottom: 1px solid #f0f0f0; display:flex; align-items:center; gap:10px; }
-.boss-company-logo { width:40px; height:40px; border-radius:8px; background:linear-gradient(135deg,#667eea,#764ba2); color:#fff; display:flex; align-items:center; justify-content:center; }
+.boss-company-logo { width:40px; height:40px; border-radius:8px; object-fit:cover; flex-shrink:0; background:#f0f0f0; }
 .boss-company-info { flex:1; min-width:0; }
 .boss-company-name { font-size:14px; font-weight:600; color:#1a1a1a; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .boss-company-meta { font-size:11px; color:#999; margin-top:1px; }
@@ -196,9 +198,7 @@ const salaryText = computed(() => {
 .boss-msg { display:flex; align-items:flex-start; gap:8px; max-width:85%; }
 .boss-msg.me { align-self:flex-end; flex-direction:row-reverse; }
 .boss-msg.hr { align-self:flex-start; }
-.boss-msg-avatar { width:36px; height:36px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:16px; }
-.hr-avatar { background:#e8f5e9; }
-.me-avatar { background:#e3f2fd; }
+.boss-msg-avatar { width:36px; height:36px; border-radius:6px; object-fit:cover; flex-shrink:0; background:#f0f0f0; }
 .boss-msg-content { display:flex; flex-direction:column; gap:0; min-width:0; }
 .boss-msg.me .boss-msg-content { align-items:flex-end; }
 .boss-msg-bubble { padding:10px 14px; border-radius:8px; font-size:14px; line-height:1.5; word-break:break-word; overflow-wrap:anywhere; }
@@ -210,8 +210,7 @@ const salaryText = computed(() => {
 .boss-typing-bubble span:nth-child(3) { animation-delay: 0.3s; }
 @keyframes dotPulse { 0%, 80%, 100% { transform: scale(0.6); opacity: 0.5; } 40% { transform: scale(1); opacity: 1; } }
 .boss-input-area { padding:8px 12px; background:#f6f6f6; border-top:1px solid #eee; display:flex; gap:8px; align-items:center; }
-.boss-input-mic, .boss-input-send { width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0; border:none; }
-.boss-input-mic { background:#f0f0f0; }
+.boss-input-send { width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0; border:none; }
 .boss-input-send { background:#00c2a2; color:#fff; }
 .boss-input-field { flex:1; height:36px; border:none; background:#fff; border-radius:18px; padding:0 14px; font-size:14px; outline:none; }
 .error { margin: 6px 10px 8px; color:#c00; font-size:12px; }
