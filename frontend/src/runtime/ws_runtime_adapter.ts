@@ -2,10 +2,15 @@ export type WsServerEvent =
   | "server.conn_ready"
   | "server.asr_partial"
   | "server.asr_final"
+  | "server.asr_skipped"
   | "server.hr_delta"
   | "server.hr_audio_chunk"
   | "server.turn_done"
+  | "server.call_state"
+  | "server.barge_in_ack"
   | "server.error";
+
+export type CallPhase = "listening" | "thinking" | "speaking";
 
 export type WsMessage<T = Record<string, unknown>> = {
   type: WsServerEvent | string;
@@ -85,6 +90,10 @@ export class RealtimeWsClient {
     this.send("client.user_text", { text });
   }
 
+  sendBargeIn(): void {
+    this.send("client.barge_in", {});
+  }
+
   async sendVoiceChunk(blob: Blob, mimeType: string): Promise<void> {
     const chunkB64 = await blobToBase64(blob);
     this.send("client.voice_chunk", { chunk_b64: chunkB64, mime_type: mimeType });
@@ -94,9 +103,12 @@ export class RealtimeWsClient {
     this.send("client.commit_utterance", { mime_type: mimeType });
   }
 
+  resetUtterance(): void {
+    this.send("client.reset_utterance", {});
+  }
+
   private send(type: string, payload: Record<string, unknown>): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     this.ws.send(JSON.stringify({ type, payload, ts: Date.now() }));
   }
 }
-

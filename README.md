@@ -107,12 +107,61 @@ curl -X POST http://127.0.0.1:8000/api/v1/voice/verify-realtime ^
 
 ### 语音 TTS 配置（sherpa-onnx / VITS）
 
-实时语音 WebSocket 可启用后端 TTS（服务端合成 wav，前端直接播放）：
+实时语音 WebSocket 可启用**后端 TTS**（服务端合成 wav，前端直接播放）。推荐模型 `sherpa-onnx-vits-zh-ll`（中文 5 说话人，可与 HR 人格绑定）。
+
+#### 1) 下载 TTS 模型
+
+```powershell
+cd D:\School\HackSong\Salary_battle\models
+curl.exe -L -o vits-zh-ll.tar.bz2 https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-vits-zh-ll.tar.bz2
+tar -xjf vits-zh-ll.tar.bz2
+```
+
+#### 2) 环境变量
 
 - `REALTIME_TTS_ENABLED=true`
 - `REALTIME_TTS_MODE=backend`
 - `SHERPA_ONNX_TTS_MODEL_TYPE=vits`
-- `SHERPA_ONNX_TTS_MODEL_DIR`：TTS 模型目录（需包含 `tokens.txt` + `model.onnx` 或 `model.int8.onnx`；中文模型通常还带 `lexicon.txt` 与 `phone.fst/date.fst/number.fst`）
+- `SHERPA_ONNX_TTS_MODEL_DIR=D:\School\HackSong\Salary_battle\models\sherpa-onnx-vits-zh-ll`
+- 可选：`SHERPA_ONNX_TTS_SPEED=1.0`
+
+HR 人格 → 说话人 ID（`backend/app/modules/voice_battle/tts_voice_map.py`）：
+
+| 人格 | sid |
+|------|-----|
+| hr_newbie | 0 |
+| hr_robot | 1 |
+| hr_aggressive | 2 |
+| hr_honest | 3 |
+| hr_smiling_tiger | 4 |
+
+> CosyVoice 不属于 sherpa-onnx 栈；若需 CosyVoice 将在后续迭代单独集成。
+
+#### 3) TTS 验收
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/speech/tts -H "Content-Type: application/json" -d "{\"text\":\"你好，我是HR。\"}"
+```
+
+`GET /api/v1/voice/verify` 在 `REALTIME_TTS_MODE=backend` 时会额外检查 TTS 模型加载与样例合成。
+
+### 实时通话模式（VoicePage）
+
+进入语音页后自动常开麦 + VAD 检测，停顿约 1 秒自动提交，无需按住说话。
+
+前端 VAD 可调（`.env`）：
+
+- `VITE_VAD_SILENCE_MS=900` — 静音多久视为说完
+- `VITE_VAD_MIN_SPEECH_MS=500` — 最短有效语段（过滤杂音短触发）
+- `VITE_VAD_ATTACK_MS=280` — 持续超过阈值多久才算开始说话
+- `VITE_VAD_CALIBRATION_MS=900` — 进页后自动校准环境底噪
+- `VITE_VAD_COMMIT_COOLDOWN_MS=1200` — 每次提交后冷却，避免连环识别
+
+WebSocket 扩展事件：
+
+- `client.barge_in` / `server.barge_in_ack` — 用户打断 HR 播报
+- `server.call_state` — `listening` / `thinking` / `speaking`
+- `server.asr_skipped` — 未识别到语音时静默恢复（不断线）
 
 也提供 HTTP 接口：`POST /api/v1/speech/tts`，请求体 `{"text":"..."}`，返回 `audio_b64`（wav）。
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from typing import Any
@@ -11,10 +12,12 @@ from app.api.session_routes import SESSIONS, orchestrator
 from app.modules.voice_battle.realtime_voice_service import RealtimeVoiceService
 from app.modules.voice_battle.speech_gateway import AsrPipelineError
 from app.modules.voice_battle.tts_gateway import synthesize_wav_base64
+from app.modules.voice_battle.tts_voice_map import resolve_tts_speaker_id
 
 WS_PATH = "/api/v1/ws/sessions/{session_id}"
 
 router = APIRouter(tags=["realtime"])
+logger = logging.getLogger(__name__)
 
 
 @router.websocket(WS_PATH)
@@ -34,17 +37,26 @@ async def ws_session_stream(websocket: WebSocket, session_id: str) -> None:
     voice_service = RealtimeVoiceService()
     seq = 0
     tts_buffer = ""
+    hr_speaking_sent = False
+
+    async def emit_call_state(phase: str) -> None:
+        await _send_event(websocket, "server.call_state", {"phase": phase, "session_id": session_id})
 
     async def emit_hr_delta(chunk: str) -> None:
         nonlocal seq
         nonlocal tts_buffer
+        nonlocal hr_speaking_sent
         seq += 1
         await _send_event(websocket, "server.hr_delta", {"delta": chunk, "session_id": session_id}, seq=seq)
         if _tts_enabled():
             if _tts_mode() == "backend":
                 tts_buffer += chunk
                 if _should_flush_tts(tts_buffer, chunk):
-                    audio_payload = synthesize_wav_base64(tts_buffer)
+                    sid = resolve_tts_speaker_id(session.hr_personality_id)
+                    audio_payload = synthesize_wav_base64(tts_buffer, speaker_id=sid)
+                    if not hr_speaking_sent:
+                        hr_speaking_sent = True
+                        await emit_call_state("speaking")
                     await _send_event(
                         websocket,
                         "server.hr_audio_chunk",
@@ -53,10 +65,12 @@ async def ws_session_stream(websocket: WebSocket, session_id: str) -> None:
                     )
                     tts_buffer = ""
             else:
+                if not hr_speaking_sent:
+                    hr_speaking_sent = True
+                    await emit_call_state("speaking")
                 await _send_event(websocket, "server.hr_audio_chunk", {"text": chunk, "session_id": session_id}, seq=seq)
 
     def sync_emit_hr_delta(chunk: str) -> None:
-        # WebSocket 回调上下文是同步函数，这里仅缓存，发送放在外层流程中批量完成。
         pending_deltas.append(chunk)
 
     pending_deltas: list[str] = []
@@ -72,9 +86,12 @@ async def ws_session_stream(websocket: WebSocket, session_id: str) -> None:
                 "hr_stream": True,
                 "hr_tts_stream": _tts_enabled(),
                 "turn_done": True,
+                "barge_in": True,
+                "call_state": True,
             },
         },
     )
+    await emit_call_state("listening")
 
     try:
         while True:
@@ -89,6 +106,13 @@ async def ws_session_stream(websocket: WebSocket, session_id: str) -> None:
                 await _send_event(websocket, "server.turn_done", {"session": session.model_dump(), "closed": True})
                 await websocket.close()
                 return
+            if event_type == "client.barge_in":
+                logger.info("barge_in session_id=%s", session_id)
+                await _send_event(websocket, "server.barge_in_ack", {"session_id": session_id})
+                continue
+            if event_type == "client.reset_utterance":
+                voice_service.reset()
+                continue
             if event_type == "client.voice_chunk":
                 chunk_b64 = str(payload.get("chunk_b64", "")).strip()
                 if chunk_b64:
@@ -108,6 +132,8 @@ async def ws_session_stream(websocket: WebSocket, session_id: str) -> None:
                     await _send_event(websocket, "server.error", {"message": "empty user text"})
                     continue
                 pending_deltas.clear()
+                hr_speaking_sent = False
+                await emit_call_state("thinking")
                 next_state, result, flow = orchestrator.run_realtime_text_turn(
                     session, player_text, on_delta=sync_emit_hr_delta
                 )
@@ -115,7 +141,11 @@ async def ws_session_stream(websocket: WebSocket, session_id: str) -> None:
                     await emit_hr_delta(piece)
                 if _tts_enabled() and _tts_mode() == "backend" and tts_buffer.strip():
                     seq += 1
-                    audio_payload = synthesize_wav_base64(tts_buffer)
+                    sid = resolve_tts_speaker_id(session.hr_personality_id)
+                    audio_payload = synthesize_wav_base64(tts_buffer, speaker_id=sid)
+                    if not hr_speaking_sent:
+                        hr_speaking_sent = True
+                        await emit_call_state("speaking")
                     await _send_event(
                         websocket,
                         "server.hr_audio_chunk",
@@ -125,6 +155,7 @@ async def ws_session_stream(websocket: WebSocket, session_id: str) -> None:
                     tts_buffer = ""
                 session = next_state
                 SESSIONS[session_id] = next_state
+                await emit_call_state("listening")
                 await _send_event(
                     websocket,
                     "server.turn_done",
@@ -142,6 +173,7 @@ async def ws_session_stream(websocket: WebSocket, session_id: str) -> None:
                         {"code": "asr_failed", "message": str(exc)},
                     )
                     voice_service.reset()
+                    await emit_call_state("listening")
                     continue
                 transcript = str(asr.get("transcript", "")).strip()
                 confidence = float(asr.get("confidence", 0.0)) if transcript else 0.0
@@ -153,12 +185,15 @@ async def ws_session_stream(websocket: WebSocket, session_id: str) -> None:
                 if not transcript:
                     await _send_event(
                         websocket,
-                        "server.error",
-                        {"code": "asr_empty", "message": "未识别到语音，请重试"},
+                        "server.asr_skipped",
+                        {"reason": "empty", "message": "未识别到语音"},
                     )
                     voice_service.reset()
+                    await emit_call_state("listening")
                     continue
                 pending_deltas.clear()
+                hr_speaking_sent = False
+                await emit_call_state("thinking")
                 next_state, voice_result, flow = orchestrator.run_realtime_voice_turn(
                     session, transcript, confidence, on_delta=sync_emit_hr_delta
                 )
@@ -166,7 +201,11 @@ async def ws_session_stream(websocket: WebSocket, session_id: str) -> None:
                     await emit_hr_delta(piece)
                 if _tts_enabled() and _tts_mode() == "backend" and tts_buffer.strip():
                     seq += 1
-                    audio_payload = synthesize_wav_base64(tts_buffer)
+                    sid = resolve_tts_speaker_id(session.hr_personality_id)
+                    audio_payload = synthesize_wav_base64(tts_buffer, speaker_id=sid)
+                    if not hr_speaking_sent:
+                        hr_speaking_sent = True
+                        await emit_call_state("speaking")
                     await _send_event(
                         websocket,
                         "server.hr_audio_chunk",
@@ -176,6 +215,7 @@ async def ws_session_stream(websocket: WebSocket, session_id: str) -> None:
                     tts_buffer = ""
                 session = next_state
                 SESSIONS[session_id] = next_state
+                await emit_call_state("listening")
                 await _send_event(
                     websocket,
                     "server.turn_done",

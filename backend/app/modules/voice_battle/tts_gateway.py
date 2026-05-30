@@ -135,7 +135,7 @@ def _get_tts() -> Any:
         return _tts
 
 
-def synthesize_wav_bytes(text: str) -> tuple[bytes, int]:
+def synthesize_wav_bytes(text: str, speaker_id: int | None = None) -> tuple[bytes, int]:
     content = (text or "").strip()
     if not content:
         return b"", 0
@@ -144,7 +144,10 @@ def synthesize_wav_bytes(text: str) -> tuple[bytes, int]:
 
     tts = _get_tts()
     gen_config = sherpa_onnx.GenerationConfig()
-    gen_config.sid = int(os.getenv("SHERPA_ONNX_TTS_SID", "0"))
+    if speaker_id is not None:
+        gen_config.sid = int(speaker_id)
+    else:
+        gen_config.sid = int(os.getenv("SHERPA_ONNX_TTS_SID", "0"))
     gen_config.speed = float(os.getenv("SHERPA_ONNX_TTS_SPEED", "1.0"))
     gen_config.silence_scale = float(os.getenv("SHERPA_ONNX_TTS_SILENCE_SCALE", "0.2"))
 
@@ -166,8 +169,55 @@ def synthesize_wav_bytes(text: str) -> tuple[bytes, int]:
         return buffer.getvalue(), int(audio.sample_rate)
 
 
-def synthesize_wav_base64(text: str) -> dict[str, Any]:
-    wav_bytes, sample_rate = synthesize_wav_bytes(text)
+def get_tts_config_summary() -> dict[str, Any]:
+    model_dir = os.getenv("SHERPA_ONNX_TTS_MODEL_DIR", "").strip()
+    vits_model = os.getenv("SHERPA_ONNX_TTS_VITS_MODEL", "").strip()
+    base = Path(model_dir) if model_dir else None
+    model_path = Path(vits_model) if vits_model else None
+    if base and not model_path:
+        for name in ("model.int8.onnx", "model.onnx"):
+            candidate = base / name
+            if candidate.exists():
+                model_path = candidate
+                break
+    tokens_path = None
+    if base:
+        token_file = base / "tokens.txt"
+        if token_file.exists():
+            tokens_path = token_file
+    files_ok = bool(model_path and model_path.exists() and tokens_path and tokens_path.exists())
+    return {
+        "model_type": os.getenv("SHERPA_ONNX_TTS_MODEL_TYPE", "vits").strip().lower() or "vits",
+        "model_dir": model_dir or None,
+        "model_path": str(model_path) if model_path else None,
+        "tokens_path": str(tokens_path) if tokens_path else None,
+        "files_ok": files_ok,
+    }
+
+
+def probe_tts_load() -> tuple[bool, str]:
+    try:
+        _get_tts()
+        return True, ""
+    except Exception as exc:
+        return False, str(exc)
+
+
+def probe_tts_sample(personality_id: str | None = None) -> tuple[str, str]:
+    from app.modules.voice_battle.tts_voice_map import resolve_tts_speaker_id
+
+    try:
+        sid = resolve_tts_speaker_id(personality_id)
+        wav_bytes, sample_rate = synthesize_wav_bytes("你好，我是人事。", speaker_id=sid)
+        if not wav_bytes or sample_rate <= 0:
+            return "", "TTS returned empty audio"
+        return f"ok sid={sid} bytes={len(wav_bytes)} rate={sample_rate}", ""
+    except Exception as exc:
+        return "", str(exc)
+
+
+def synthesize_wav_base64(text: str, speaker_id: int | None = None) -> dict[str, Any]:
+    wav_bytes, sample_rate = synthesize_wav_bytes(text, speaker_id=speaker_id)
     if not wav_bytes:
         return {"audio_b64": "", "sample_rate": 0, "mime_type": "audio/wav"}
     return {

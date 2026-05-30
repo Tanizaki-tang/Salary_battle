@@ -7,10 +7,10 @@
         <span>📶 🔋</span>
       </div>
       <div class="call-active-bg">
-        <div class="call-avatar-large">👩‍💼</div>
+        <div class="call-avatar-large" :class="{ speaking: callPhase === 'speaking' }">👩‍💼</div>
         <div class="call-name">张敏</div>
         <div class="call-role">HR负责人</div>
-        <div class="call-company">语音协商中</div>
+        <div class="call-company">{{ callPhaseText }}</div>
         <div class="call-link-status">连线状态：{{ connectionStateText }}</div>
         <div class="call-timer">⏱ {{ timer }}</div>
 
@@ -31,37 +31,35 @@
               {{ m.text }}
             </div>
           </div>
-          <div v-if="streamingHrText" class="call-transcript-line hr">
+          <div v-if="streamingHrText && activeTurnGeneration === bargeGeneration" class="call-transcript-line hr">
             <div class="call-transcript-bubble">
               <div class="call-transcript-speaker">张敏</div>
               {{ streamingHrText }}
             </div>
           </div>
-          <div v-else-if="waitingHr" class="call-transcript-line hr">
+          <div v-else-if="callPhase === 'thinking'" class="call-transcript-line hr">
             <div class="call-transcript-bubble call-typing-bubble">
-              <div class="call-transcript-speaker">对方正在输入中...</div>
+              <div class="call-transcript-speaker">对方思考中...</div>
               <span></span><span></span><span></span>
             </div>
           </div>
         </div>
 
-        <div v-if="partialAsr" class="asr-partial">🎧 {{ partialAsr }}</div>
-
-        <div class="voice-record-row">
-          <button
-            class="voice-record-btn"
-            :class="{ recording: isRecording }"
-            @click="toggleRealtimeRecord"
-            :disabled="loading || !realtimeReady"
-          >
-            {{ isRecording ? "结束并发送" : "开始说话" }}
-          </button>
-        </div>
+        <div v-if="partialAsr && userSpeaking" class="asr-partial">🎧 {{ partialAsr }}</div>
+        <div v-if="softHint" class="asr-partial soft-hint">{{ softHint }}</div>
 
         <div class="call-actions">
-          <button class="call-btn call-btn-mute" @click="$router.push(`/battle/${sessionId}`)">💬</button>
-          <button class="call-btn call-btn-hangup" @click="$router.push(`/result/${sessionId}`)">📞</button>
-          <button class="call-btn call-btn-mute" @click="$router.push('/')">⌂</button>
+          <button class="call-btn call-btn-mute" title="文字战" @click="$router.push(`/battle/${sessionId}`)">💬</button>
+          <button
+            class="call-btn call-btn-mute"
+            :class="{ active: selfMuted }"
+            title="静音"
+            @click="toggleSelfMute"
+          >
+            {{ selfMuted ? "🔇" : "🎤" }}
+          </button>
+          <button class="call-btn call-btn-hangup" title="挂断" @click="hangup">📞</button>
+          <button class="call-btn call-btn-mute" title="首页" @click="$router.push('/')">⌂</button>
         </div>
 
         <p v-if="error" class="error">{{ error }}</p>
@@ -74,7 +72,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import type { SessionState } from "../runtime/battle_runtime_adapter";
-import { RealtimeWsClient, type WsMessage } from "../runtime/ws_runtime_adapter";
+import { RealtimeWsClient, type CallPhase, type WsMessage } from "../runtime/ws_runtime_adapter";
 import {
   createUtterance,
   ensureTtsVoices,
@@ -83,26 +81,31 @@ import {
   shouldFlushTtsBuffer,
   type TtsVoiceConfig,
 } from "../runtime/tts_voice";
+import { EnergyVadMonitor, loadVadConfig } from "../runtime/vad";
 
 const route = useRoute();
 const router = useRouter();
 const sessionId = computed(() => String(route.params.sessionId || ""));
 const loading = ref(false);
 const error = ref("");
-const waitingHr = ref(false);
+const softHint = ref("");
 const lines = ref<Array<{ role: "hr" | "me"; text: string }>>([]);
 const transcriptRef = ref<HTMLElement | null>(null);
 const streamingHrText = ref("");
 const partialAsr = ref("");
 const session = ref<SessionState | null>(null);
-const connectionState = ref<"connecting" | "ready" | "failed" | "offline">("offline");
+const connectionState = ref<"connecting" | "ringing" | "ready" | "failed" | "offline">("offline");
+const callPhase = ref<CallPhase | "ringing">("ringing");
+const userSpeaking = ref(false);
+const selfMuted = ref(false);
 const realtimeEnabled = ((import.meta.env.VITE_REALTIME_WS_ENABLED || "true") as string).toLowerCase() !== "false";
 const ttsEnabled = ((import.meta.env.VITE_REALTIME_TTS_ENABLED || "true") as string).toLowerCase() !== "false";
-const isRecording = ref(false);
 const recorderMimeType = ref("audio/webm");
 let wsClient: RealtimeWsClient | null = null;
 let mediaRecorder: MediaRecorder | null = null;
 let mediaStream: MediaStream | null = null;
+let audioTrack: MediaStreamTrack | null = null;
+let vadMonitor: EnergyVadMonitor | null = null;
 let unsubscribeEvent: (() => void) | null = null;
 let ttsBuffer = "";
 const ttsQueue: string[] = [];
@@ -112,6 +115,14 @@ let ttsAudioPlaying = false;
 let ttsAudio: HTMLAudioElement | null = null;
 let ttsVoice: SpeechSynthesisVoice | null = null;
 let ttsConfig: TtsVoiceConfig = loadTtsVoiceConfig();
+let bargeGeneration = 0;
+let activeTurnGeneration = 0;
+let canCommit = true;
+let utteranceActive = false;
+let capturingUtterance = false;
+let commitCooldownUntil = 0;
+const commitCooldownMs = Number(import.meta.env.VITE_VAD_COMMIT_COOLDOWN_MS || 1200) || 1200;
+let ringingTimer: number | null = null;
 const startedAt = Date.now();
 const nowTick = ref(Date.now());
 const timerHandle = window.setInterval(() => {
@@ -120,17 +131,28 @@ const timerHandle = window.setInterval(() => {
 
 const cachedSession = sessionStorage.getItem("currentSession");
 if (cachedSession) session.value = JSON.parse(cachedSession) as SessionState;
+
 const timer = computed(() => {
   const sec = Math.floor((nowTick.value - startedAt) / 1000);
   const mm = String(Math.floor(sec / 60)).padStart(2, "0");
   const ss = String(sec % 60).padStart(2, "0");
   return `${mm}:${ss}`;
 });
-const realtimeReady = computed(() => connectionState.value === "ready");
+
+const callPhaseText = computed(() => {
+  if (connectionState.value === "connecting") return "正在连接...";
+  if (connectionState.value === "ringing") return "响铃中...";
+  if (callPhase.value === "listening") return selfMuted.value ? "你已静音" : "正在听你说…";
+  if (callPhase.value === "thinking") return "对方思考中…";
+  if (callPhase.value === "speaking") return "对方正在说话…";
+  return "通话中";
+});
+
 const connectionStateText = computed(() => {
   if (!realtimeEnabled) return "未启用实时语音";
   if (connectionState.value === "connecting") return "连接中";
-  if (connectionState.value === "ready") return isRecording.value ? "实时连线中" : "已连接";
+  if (connectionState.value === "ringing") return "响铃中";
+  if (connectionState.value === "ready") return "通话中";
   if (connectionState.value === "failed") return "连接失败";
   return "未连接";
 });
@@ -138,14 +160,12 @@ const connectionStateText = computed(() => {
 function scrollTranscriptToBottom() {
   nextTick(() => {
     const el = transcriptRef.value;
-    if (el) {
-      el.scrollTop = el.scrollHeight;
-    }
+    if (el) el.scrollTop = el.scrollHeight;
   });
 }
 
 watch(
-  () => [lines.value.length, waitingHr.value, streamingHrText.value.length, partialAsr.value.length],
+  () => [lines.value.length, callPhase.value, streamingHrText.value.length, partialAsr.value.length],
   () => scrollTranscriptToBottom(),
 );
 
@@ -164,7 +184,14 @@ onMounted(async () => {
   try {
     await wsClient.connect(sessionId.value);
     unsubscribeEvent = wsClient.onEvent(handleWsEvent);
-    connectionState.value = "ready";
+    connectionState.value = "ringing";
+    callPhase.value = "ringing";
+    const delay = 600 + Math.floor(Math.random() * 600);
+    ringingTimer = window.setTimeout(() => {
+      connectionState.value = "ready";
+      callPhase.value = "listening";
+      void startAlwaysOnMic();
+    }, delay);
   } catch {
     connectionState.value = "failed";
     error.value = "实时语音连接失败，请检查后端是否启动";
@@ -173,31 +200,78 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.clearInterval(timerHandle);
-  stopMediaTracks();
+  if (ringingTimer !== null) window.clearTimeout(ringingTimer);
+  stopAlwaysOnMic();
   cleanupSpeech();
   unsubscribeEvent?.();
   wsClient?.close();
   wsClient = null;
 });
 
+function isStaleTurn(): boolean {
+  return activeTurnGeneration !== bargeGeneration;
+}
+
+function handleBargeIn() {
+  if (callPhase.value !== "speaking" && callPhase.value !== "thinking") return;
+  bargeGeneration += 1;
+  cleanupSpeech();
+  streamingHrText.value = "";
+  wsClient?.sendBargeIn();
+  callPhase.value = "listening";
+  canCommit = true;
+  loading.value = false;
+  commitCooldownUntil = 0;
+}
+
 function handleWsEvent(message: WsMessage) {
   const payload = (message.payload || {}) as Record<string, any>;
+  if (message.type === "server.call_state") {
+    const phase = String(payload.phase || "") as CallPhase;
+    if (phase === "listening" || phase === "thinking" || phase === "speaking") {
+      if (!isStaleTurn() || phase === "listening") {
+        callPhase.value = phase;
+      }
+    }
+    return;
+  }
   if (message.type === "server.asr_partial") {
-    partialAsr.value = String(payload.text || "正在识别...");
+    if (capturingUtterance && userSpeaking.value) {
+      partialAsr.value = String(payload.text || "正在识别...");
+    }
     return;
   }
   if (message.type === "server.asr_final") {
     partialAsr.value = "";
+    userSpeaking.value = false;
     const transcript = String(payload.transcript || "").trim();
     if (transcript) lines.value.push({ role: "me", text: transcript });
     return;
   }
+  if (message.type === "server.asr_skipped") {
+    partialAsr.value = "";
+    userSpeaking.value = false;
+    capturingUtterance = false;
+    utteranceActive = false;
+    loading.value = false;
+    canCommit = true;
+    commitCooldownUntil = Date.now() + commitCooldownMs;
+    callPhase.value = "listening";
+    softHint.value = "没听清，请再说一次";
+    window.setTimeout(() => {
+      softHint.value = "";
+    }, 2000);
+    return;
+  }
   if (message.type === "server.hr_delta") {
-    waitingHr.value = false;
+    if (isStaleTurn()) return;
+    callPhase.value = "speaking";
     streamingHrText.value += String(payload.delta || "");
     return;
   }
   if (message.type === "server.hr_audio_chunk") {
+    if (isStaleTurn()) return;
+    callPhase.value = "speaking";
     const audioB64 = String(payload.audio_b64 || "").trim();
     if (audioB64) {
       enqueueBackendTtsAudio(audioB64, String(payload.mime_type || "audio/wav"));
@@ -207,8 +281,12 @@ function handleWsEvent(message: WsMessage) {
     return;
   }
   if (message.type === "server.turn_done") {
-    waitingHr.value = false;
+    if (isStaleTurn()) return;
     loading.value = false;
+    canCommit = true;
+    commitCooldownUntil = Date.now() + commitCooldownMs;
+    capturingUtterance = false;
+    utteranceActive = false;
     const result = payload.result || {};
     const flow = payload.flow || {};
     const nextSession = payload.session as SessionState | undefined;
@@ -217,9 +295,13 @@ function handleWsEvent(message: WsMessage) {
     flushTtsBuffer();
     streamingHrText.value = "";
     partialAsr.value = "";
+    userSpeaking.value = false;
     if (nextSession) {
       session.value = nextSession;
       sessionStorage.setItem("currentSession", JSON.stringify(nextSession));
+    }
+    if (!ttsAudioPlaying && !ttsSpeaking) {
+      callPhase.value = "listening";
     }
     if (flow.next_phase === "end" || result.is_game_over || nextSession?.status === "settled") {
       void router.push(`/result/${sessionId.value}`);
@@ -227,59 +309,141 @@ function handleWsEvent(message: WsMessage) {
     }
     if (flow.next_phase === "text") {
       void router.push(`/battle/${sessionId.value}`);
-      return;
     }
     return;
   }
   if (message.type === "server.error") {
     loading.value = false;
-    waitingHr.value = false;
+    canCommit = true;
+    commitCooldownUntil = Date.now() + commitCooldownMs;
+    capturingUtterance = false;
+    utteranceActive = false;
     partialAsr.value = "";
+    userSpeaking.value = false;
+    callPhase.value = "listening";
     const code = String(payload.code || "");
-    if (code === "asr_empty") {
-      error.value = "未识别到语音，请重试";
+    if (code === "asr_empty" || code === "asr_failed") {
+      softHint.value = code === "asr_failed" ? "识别失败，请重试" : "没听清，请再说一次";
+      window.setTimeout(() => {
+        softHint.value = "";
+      }, 2500);
       return;
     }
     error.value = String(payload.message || "实时语音异常");
   }
 }
 
-function stopMediaTracks() {
+async function startAlwaysOnMic() {
+  if (!wsClient) return;
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    });
+    audioTrack = mediaStream.getAudioTracks()[0] || null;
+    const preferred = ["audio/webm;codecs=opus", "audio/webm"];
+    const picked = preferred.find((m) => MediaRecorder.isTypeSupported(m)) || "";
+    recorderMimeType.value = picked || "audio/webm";
+    mediaRecorder = picked
+      ? new MediaRecorder(mediaStream, { mimeType: picked })
+      : new MediaRecorder(mediaStream);
+    mediaRecorder.ondataavailable = async (evt) => {
+      if (!evt.data || evt.data.size <= 0 || !wsClient || selfMuted.value || !capturingUtterance) return;
+      await wsClient.sendVoiceChunk(evt.data, recorderMimeType.value);
+    };
+    mediaRecorder.start(200);
+
+    const vadConfig = loadVadConfig();
+    vadMonitor = new EnergyVadMonitor(vadConfig, {
+      onSpeechStart: () => {
+        if (selfMuted.value || !canCommit || Date.now() < commitCooldownUntil) return;
+        utteranceActive = true;
+        capturingUtterance = true;
+        userSpeaking.value = true;
+        partialAsr.value = "正在听你说…";
+        wsClient?.resetUtterance();
+        if (callPhase.value === "speaking" || callPhase.value === "thinking" || ttsAudioPlaying || ttsSpeaking) {
+          handleBargeIn();
+          capturingUtterance = true;
+        }
+      },
+      onSpeechCancel: () => {
+        capturingUtterance = false;
+        utteranceActive = false;
+        userSpeaking.value = false;
+        partialAsr.value = "";
+      },
+      onSpeechEnd: () => {
+        if (selfMuted.value || !canCommit || loading.value || Date.now() < commitCooldownUntil) {
+          capturingUtterance = false;
+          utteranceActive = false;
+          userSpeaking.value = false;
+          partialAsr.value = "";
+          return;
+        }
+        if (!utteranceActive) return;
+        utteranceActive = false;
+        capturingUtterance = false;
+        userSpeaking.value = false;
+        commitCurrentUtterance();
+      },
+    });
+    vadMonitor.start(mediaStream);
+  } catch {
+    error.value = "无法访问麦克风，请检查浏览器权限";
+    connectionState.value = "failed";
+  }
+}
+
+function commitCurrentUtterance() {
+  if (!wsClient || loading.value || selfMuted.value) return;
+  loading.value = true;
+  canCommit = false;
+  activeTurnGeneration = bargeGeneration;
+  callPhase.value = "thinking";
+  partialAsr.value = "";
+  wsClient.commitUtterance(recorderMimeType.value);
+}
+
+function stopAlwaysOnMic() {
+  vadMonitor?.stop();
+  vadMonitor = null;
+  if (mediaRecorder && mediaRecorder.state !== "inactive") {
+    try {
+      mediaRecorder.stop();
+    } catch {
+      // ignore
+    }
+  }
+  mediaRecorder = null;
   if (mediaStream) {
     mediaStream.getTracks().forEach((t) => t.stop());
     mediaStream = null;
   }
-  mediaRecorder = null;
-  isRecording.value = false;
+  audioTrack = null;
+  userSpeaking.value = false;
 }
 
-async function toggleRealtimeRecord() {
-  if (!realtimeReady.value || !wsClient) return;
-  if (isRecording.value) {
-    loading.value = true;
-    waitingHr.value = true;
-    error.value = "";
-    mediaRecorder?.stop();
-    return;
+function toggleSelfMute() {
+  selfMuted.value = !selfMuted.value;
+  if (audioTrack) audioTrack.enabled = !selfMuted.value;
+  vadMonitor?.setEnabled(!selfMuted.value);
+  if (selfMuted.value) {
+    userSpeaking.value = false;
+    partialAsr.value = "";
+    utteranceActive = false;
+    capturingUtterance = false;
   }
-  error.value = "";
-  partialAsr.value = "正在采集音频...";
-  mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  const preferred = ["audio/webm;codecs=opus", "audio/webm"];
-  const picked = preferred.find((m) => MediaRecorder.isTypeSupported(m)) || "";
-  recorderMimeType.value = picked || "audio/webm";
-  mediaRecorder = picked ? new MediaRecorder(mediaStream, { mimeType: picked }) : new MediaRecorder(mediaStream);
-  mediaRecorder.ondataavailable = async (evt) => {
-    if (!evt.data || evt.data.size <= 0 || !wsClient) return;
-    await wsClient.sendVoiceChunk(evt.data, recorderMimeType.value);
-  };
-  mediaRecorder.onstop = () => {
-    isRecording.value = false;
-    stopMediaTracks();
-    wsClient?.commitUtterance(recorderMimeType.value);
-  };
-  mediaRecorder.start(200);
-  isRecording.value = true;
+}
+
+function hangup() {
+  stopAlwaysOnMic();
+  cleanupSpeech();
+  wsClient?.close();
+  void router.push(`/result/${sessionId.value}`);
 }
 
 function cleanupSpeech() {
@@ -294,8 +458,9 @@ function cleanupSpeech() {
       const url = ttsAudio.src;
       ttsAudio.pause();
       ttsAudio.src = "";
-      if (url) URL.revokeObjectURL(url);
+      if (url.startsWith("blob:")) URL.revokeObjectURL(url);
     } catch {
+      // ignore
     }
   }
   ttsAudio = null;
@@ -332,6 +497,9 @@ function playTtsQueue() {
   const utter = createUtterance(text, ttsVoice, ttsConfig);
   utter.onend = () => {
     ttsSpeaking = false;
+    if (!ttsSpeaking && ttsQueue.length === 0 && !loading.value) {
+      callPhase.value = "listening";
+    }
     playTtsQueue();
   };
   utter.onerror = () => {
@@ -351,7 +519,7 @@ function base64ToBytes(b64: string): Uint8Array {
 }
 
 function enqueueBackendTtsAudio(audioB64: string, mimeType: string) {
-  if (!ttsEnabled || !audioB64) return;
+  if (!ttsEnabled || !audioB64 || isStaleTurn()) return;
   const bytes = base64ToBytes(audioB64);
   const blob = new Blob([bytes], { type: mimeType || "audio/wav" });
   const url = URL.createObjectURL(blob);
@@ -360,22 +528,31 @@ function enqueueBackendTtsAudio(audioB64: string, mimeType: string) {
 }
 
 function playBackendTtsQueue() {
-  if (ttsAudioPlaying || ttsAudioQueue.length === 0) return;
+  if (ttsAudioPlaying || ttsAudioQueue.length === 0 || isStaleTurn()) return;
   const url = ttsAudioQueue.shift();
   if (!url) return;
   ttsAudioPlaying = true;
+  callPhase.value = "speaking";
   const audio = new Audio(url);
   ttsAudio = audio;
   const finish = () => {
     ttsAudioPlaying = false;
     ttsAudio = null;
     URL.revokeObjectURL(url);
+    if (ttsAudioQueue.length === 0 && !loading.value && !isStaleTurn()) {
+      callPhase.value = "listening";
+    }
     playBackendTtsQueue();
   };
   audio.onended = finish;
   audio.onerror = finish;
   void audio.play().catch(finish);
 }
+
+// Track utterance activity for VAD end detection
+watch(userSpeaking, (speaking) => {
+  if (!speaking) utteranceActive = false;
+});
 </script>
 
 <style scoped>
@@ -385,11 +562,13 @@ function playBackendTtsQueue() {
 .status-bar { height: 36px; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; font-size: 11px; font-weight: 600; color: #fff; flex-shrink: 0; }
 .status-bar.dark { background: #1a1a2e; }
 .call-active-bg { background: linear-gradient(180deg, #1a1a2e 0%, #16213e 40%, #0f3460 100%); flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; align-items: center; padding: 20px 24px; position: relative; color: #fff; }
-.call-avatar-large { width: 80px; height: 80px; border-radius: 50%; background: linear-gradient(135deg, #e8f5e9, #c8e6c9); display: flex; align-items: center; justify-content: center; font-size: 36px; margin-top: 20px; }
+.call-avatar-large { width: 80px; height: 80px; border-radius: 50%; background: linear-gradient(135deg, #e8f5e9, #c8e6c9); display: flex; align-items: center; justify-content: center; font-size: 36px; margin-top: 20px; transition: box-shadow 0.3s ease; }
+.call-avatar-large.speaking { animation: avatarPulse 1.2s ease-in-out infinite; box-shadow: 0 0 0 8px rgba(0, 194, 162, 0.25); }
+@keyframes avatarPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
 .call-name { font-size: 20px; font-weight: 600; margin-top: 12px; }
 .call-role { color: rgba(255,255,255,0.7); font-size: 12px; margin-top: 2px; }
-.call-company { color: rgba(255,255,255,0.5); font-size: 12px; margin-top: 1px; }
-.call-link-status { color: rgba(255,255,255,0.72); font-size: 11px; margin-top: 4px; }
+.call-company { color: rgba(255,255,255,0.72); font-size: 13px; margin-top: 4px; min-height: 18px; }
+.call-link-status { color: rgba(255,255,255,0.55); font-size: 11px; margin-top: 4px; }
 .call-timer { color: rgba(255,255,255,0.6); font-size: 13px; margin-top: 12px; }
 .call-hud { width: 100%; max-width: 300px; margin-top: 16px; }
 .call-hud-label { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 12px; }
@@ -406,13 +585,11 @@ function playBackendTtsQueue() {
 .call-typing-bubble span:nth-child(4) { animation-delay: 0.3s; }
 @keyframes callDotPulse { 0%, 80%, 100% { transform: scale(0.6); opacity: 0.5; } 40% { transform: scale(1); opacity: 1; } }
 .asr-partial { width: 100%; max-width: 320px; margin-top: 8px; font-size: 11px; color: rgba(255,255,255,0.86); }
-.voice-record-row { width: 100%; max-width: 320px; margin-top: 12px; display: flex; justify-content: center; }
-.voice-record-btn { border: none; border-radius: 999px; padding: 12px 28px; background: #00c2a2; color: #fff; font-size: 14px; font-weight: 600; }
-.voice-record-btn.recording { background: #ff4757; }
-.voice-record-btn:disabled { opacity: 0.55; }
-.call-actions { margin-top: 12px; padding-bottom: 16px; display: flex; justify-content: center; gap: 36px; }
-.call-btn { width: 56px; height: 56px; border-radius: 50%; border: none; font-size: 22px; color: #fff; }
+.soft-hint { color: rgba(255,255,255,0.55); font-style: italic; }
+.call-actions { margin-top: auto; padding-bottom: 16px; display: flex; justify-content: center; gap: 24px; align-items: center; }
+.call-btn { width: 56px; height: 56px; border-radius: 50%; border: none; font-size: 22px; color: #fff; cursor: pointer; }
 .call-btn-hangup { background: #ff4757; }
 .call-btn-mute { width: 48px; height: 48px; font-size: 18px; background: rgba(255,255,255,0.15); }
+.call-btn-mute.active { background: rgba(255, 71, 87, 0.45); }
 .error { color: #ff9aa2; font-size: 12px; margin-top: 4px; text-align: center; }
 </style>
