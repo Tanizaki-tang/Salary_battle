@@ -1,0 +1,18 @@
+{
+  "strong_push": {
+    "hr_reply": "这个预算已经比较紧了。",
+    "delta": { "hr_patience": -8, "info_exposure": -2, "trap_count": 0 }
+  },
+  "probe": {
+    "hr_reply": "你可以先说说你的预期范围。",
+    "delta": { "hr_patience": -2, "info_exposure": -6, "trap_count": 0 }
+  },
+  "concede": {
+    "hr_reply": "那我们按标准流程推进。",
+    "delta": { "hr_patience": 6, "info_exposure": 8, "trap_count": 0 }
+  },
+  "counter_pressure": {
+    "hr_reply": "这个点我们再沟通下。",
+    "delta": { "hr_patience": -5, "info_exposure": -5, "trap_count": 1 }
+  }
+}

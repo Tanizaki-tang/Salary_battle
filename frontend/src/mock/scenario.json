@@ -1,0 +1,9 @@
+{
+  "max_round": 5,
+  "hr_opening": "你好，我们这边给你的总包是 12k*14，你怎么看？",
+  "initial_state": {
+    "hr_patience": 70,
+    "info_exposure": 20,
+    "trap_count": 0
+  }
+}

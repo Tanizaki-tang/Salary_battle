@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS game_session (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  final_score INTEGER NOT NULL,
+  final_salary INTEGER NOT NULL,
+  grade TEXT NOT NULL,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
