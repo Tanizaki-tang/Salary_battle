@@ -1,12 +1,16 @@
 export type SessionState = {
   session_id: string;
   user_id: string;
+  user_name: string;
+  scene_id: string;
+  role_id: string;
   status: "ongoing" | "settled" | "closed";
   round_index: number;
   max_round: number;
   hr_patience: number;
   info_exposure: number;
   trap_count: number;
+  scene_context?: Record<string, unknown>;
 };
 
 export type TurnResult = {
@@ -17,13 +21,25 @@ export type TurnResult = {
   next_round: number;
 };
 
+export type FlowDecision = {
+  next_phase: "text" | "voice" | "end";
+  reason: string;
+  should_end: boolean;
+};
+
 export interface BattleRuntimeAdapter {
-  createSession(userId: string): Promise<{ session: SessionState; hr_opening: string }>;
-  textTurn(sessionId: string, payload: { strategy?: string; player_text?: string }): Promise<{ result: TurnResult; session: SessionState }>;
+  createSession(
+    userId: string,
+    sceneId?: string,
+    roleId?: string,
+    userName?: string
+  ): Promise<{ session: SessionState; hr_opening: string; scene_meta?: Record<string, unknown> }>;
+  textTurn(sessionId: string, payload: { strategy?: string; player_text?: string }): Promise<{ result: TurnResult; session: SessionState; flow?: FlowDecision }>;
   voiceTurn(sessionId: string, payload: { audio_file?: File; audio_path?: string }): Promise<{
     asr: { transcript: string; confidence: number };
     result: TurnResult;
     session: SessionState;
+    flow?: FlowDecision;
   }>;
   settle(sessionId: string): Promise<{ result: { final_score: number; final_salary: number; grade: string; review_tip: string } }>;
 }

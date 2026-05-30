@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from "vue-router";
 import App from "./App.vue";
 import StartPage from "./pages/StartPage.vue";
 import BattlePage from "./pages/BattlePage.vue";
+import VoicePage from "./pages/VoicePage.vue";
 import ResultPage from "./pages/ResultPage.vue";
 
 const router = createRouter({
@@ -10,6 +11,7 @@ const router = createRouter({
   routes: [
     { path: "/", component: StartPage },
     { path: "/battle/:sessionId", component: BattlePage },
+    { path: "/voice/:sessionId", component: VoicePage },
     { path: "/result/:sessionId", component: ResultPage },
   ],
 });

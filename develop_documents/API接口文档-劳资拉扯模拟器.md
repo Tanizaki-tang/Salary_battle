@@ -126,8 +126,12 @@ Content-Type: application/json
 - **Path**：`/api/v1/health`
 - **描述**：用于服务存活探测与部署后巡检，不依赖业务参数。
 
-### 成功响应示例
+前端-->后端：
+```json
+{}
+```
 
+后端-->前端：
 ```json
 {
   "code": 0,
@@ -151,18 +155,18 @@ Content-Type: application/json
 
 - **Method**：`POST`
 - **Path**：`/api/v1/sessions`
-- **描述**：创建新对局并返回初始状态与首句 HR 话术。
+- **描述**：创建新对局并返回初始状态、首句 HR 话术、场景元数据。
 
-### 请求体
-
+前端-->后端：
 ```json
 {
-  "user_id": "user_abc123"
+  "user_id": "user_abc123",
+  "scene_id": "scene_001",
+  "role_id": "role_backend"
 }
 ```
 
-### 成功响应示例
-
+后端-->前端：
 ```json
 {
   "code": 0,
@@ -171,14 +175,21 @@ Content-Type: application/json
     "session": {
       "session_id": "sess_001",
       "user_id": "user_abc123",
+      "scene_id": "scene_001",
+      "role_id": "role_backend",
       "status": "ongoing",
       "round_index": 1,
       "max_round": 5,
-      "hr_patience": 70,
+      "hr_patience": 80,
       "info_exposure": 20,
       "trap_count": 0
     },
-    "hr_opening": "你好，我们这边给你的总包是 12k*14，你怎么看？"
+    "hr_opening": "你好！我们给你的初始 offer 是 15K*14，你怎么看？",
+    "scene_meta": {
+      "scene_id": "scene_001",
+      "scene_name": "初创公司后端岗",
+      "role_hint": "后端开发求职者"
+    }
   }
 }
 ```
@@ -200,58 +211,48 @@ Content-Type: application/json
 
 - `session_id`：对局 ID
 
-### 请求体（二选一）
-
-#### A. 策略按钮模式（推荐）
-
+前端-->后端（策略模式）：
 ```json
 {
-  "strategy": "counter_pressure"
+  "strategy": "probe"
 }
 ```
 
-可选策略值：
-
-- `strong_push`（强势争取）
-- `probe`（迂回试探）
-- `concede`（妥协让步）
-- `counter_pressure`（反问施压）
-
-#### B. 自由文本模式
-
+前端-->后端（自由文本模式）：
 ```json
 {
   "player_text": "我想先确认一下这个岗位的薪资区间和加班费计算方式。"
 }
 ```
 
-### 成功响应示例
-
+后端-->前端：
 ```json
 {
   "code": 0,
   "message": "ok",
   "data": {
     "result": {
-      "hr_reply": "我们这边加班费已经包含在总包里了。",
+      "hr_reply": "你问得很专业，你先说说你关心的重点。",
       "delta": {
-        "hr_patience": -5,
-        "info_exposure": -4,
-        "trap_count": 1
+        "hr_patience": -2,
+        "info_exposure": 5,
+        "trap_count": 0
       },
-      "is_trap_hit": true,
+      "is_trap_hit": false,
       "is_game_over": false,
       "next_round": 2
     },
     "session": {
       "session_id": "sess_001",
       "user_id": "user_abc123",
+      "scene_id": "scene_001",
+      "role_id": "role_backend",
       "status": "ongoing",
       "round_index": 2,
       "max_round": 5,
-      "hr_patience": 65,
-      "info_exposure": 16,
-      "trap_count": 1
+      "hr_patience": 78,
+      "info_exposure": 25,
+      "trap_count": 0
     }
   }
 }
@@ -269,17 +270,15 @@ Content-Type: application/json
 
 - `session_id`：对局 ID
 
-### 请求类型
+前端-->后端（multipart/form-data）：
+```json
+{
+  "audio_file": "<binary:wav/mp3/m4a/webm>",
+  "input_mode": "voice"
+}
+```
 
-- `multipart/form-data`
-
-### 表单字段
-
-- `audio_file`（必填）：音频文件，支持 `wav/mp3/m4a/webm`
-- `input_mode`（可选）：默认 `voice`，用于埋点区分来源
-
-### 成功响应示例
-
+后端-->前端：
 ```json
 {
   "code": 0,
@@ -287,35 +286,36 @@ Content-Type: application/json
   "data": {
     "asr": {
       "transcript": "我想确认一下这个岗位的薪资区间和加班费。",
-      "confidence": 0.89
+      "confidence": 0.9
     },
     "result": {
-      "hr_reply": "我们这边加班费已经算在总包里了。",
+      "hr_reply": "你问得很专业，你先说说你关心的重点。",
       "delta": {
-        "hr_patience": -4,
-        "info_exposure": -3,
-        "trap_count": 1
+        "hr_patience": -2,
+        "info_exposure": 5,
+        "trap_count": 0
       },
-      "is_trap_hit": true,
+      "is_trap_hit": false,
       "is_game_over": false,
       "next_round": 2
     },
     "session": {
       "session_id": "sess_001",
       "user_id": "user_abc123",
+      "scene_id": "scene_001",
+      "role_id": "role_backend",
       "status": "ongoing",
       "round_index": 2,
       "max_round": 5,
-      "hr_patience": 66,
-      "info_exposure": 17,
-      "trap_count": 1
+      "hr_patience": 78,
+      "info_exposure": 25,
+      "trap_count": 0
     }
   }
 }
 ```
 
-### 失败响应示例（ASR 失败）
-
+后端-->前端（失败示例）：
 ```json
 {
   "code": 5002,
@@ -344,24 +344,22 @@ Content-Type: application/json
 
 - `session_id`：对局 ID
 
-### 请求体
-
+前端-->后端：
 ```json
 {}
 ```
 
-### 成功响应示例
-
+后端-->前端：
 ```json
 {
   "code": 0,
   "message": "ok",
   "data": {
     "result": {
-      "final_salary": 13200,
-      "final_score": 84,
-      "grade": "A",
-      "review_tip": "你识别出了关键陷阱，但后两轮信息暴露略高。"
+      "final_salary": 17800,
+      "final_score": 58,
+      "grade": "C",
+      "review_tip": "你成功控制了信息暴露度，建议继续提升陷阱识别稳定性。"
     },
     "persist": {
       "saved": true,
@@ -385,23 +383,21 @@ Content-Type: application/json
 - **Path**：`/api/v1/speech/asr`
 - **描述**：仅执行语音识别，不推进回合。用于调试、预识别、弱网兜底。
 
-### 请求类型
+前端-->后端（multipart/form-data）：
+```json
+{
+  "audio_file": "<binary:wav/mp3/m4a/webm>"
+}
+```
 
-- `multipart/form-data`
-
-### 表单字段
-
-- `audio_file`（必填）：音频文件，支持 `wav/mp3/m4a/webm`
-
-### 成功响应示例
-
+后端-->前端：
 ```json
 {
   "code": 0,
   "message": "ok",
   "data": {
     "transcript": "我想确认一下试用期薪资和转正后的基数。",
-    "confidence": 0.91
+    "confidence": 0.9
   }
 }
 ```

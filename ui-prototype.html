@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>谈薪模拟器 - UI原型</title>
+<style>
+  :root {
+    --boss-blue: #00c2a2;
+    --boss-blue-dark: #00967c;
+    --boss-bg: #f6f6f6;
+    --call-bg: #1a1a2e;
+    --call-accent: #00c2a2;
+    --danger: #ff4757;
+    --white: #fff;
+    --bubble-left: #fff;
+    --bubble-right: #00c2a2;
+    --text: #1a1a1a;
+    --text-secondary: #999;
+    --border: #f0f0f0;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #e8e8e8;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100dvh;
+    padding: 16px;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+
+  /* ============ SCREEN WRAPPERS ============ */
+  .screen-label {
+    font-size: 11px;
+    color: #888;
+    text-align: center;
+    margin-bottom: 6px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+  .phone {
+    width: 375px;
+    height: 700px;
+    border-radius: 32px;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.15), 0 0 0 2px #1a1a1a;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+  .phone.notch::before {
+    content: '';
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100px;
+    height: 24px;
+    background: #1a1a1a;
+    border-radius: 0 0 16px 16px;
+    z-index: 10;
+  }
+  .phone .status-bar {
+    height: 36px;
+    background: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #fff;
+    flex-shrink: 0;
+  }
+
+  /* ============ SCREEN 1: BOSS直聘聊天 ============ */
+  .boss-chat {
+    background: #f6f6f6;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Header */
+  .boss-header {
+    background: var(--boss-blue);
+    padding: 8px 16px 12px;
+    color: #fff;
+    flex-shrink: 0;
+  }
+  .boss-header-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .boss-back {
+    font-size: 18px;
+    cursor: pointer;
+    opacity: 0.9;
+    width: 28px;
+    text-align: center;
+  }
+  .boss-header-name {
+    font-size: 16px;
+    font-weight: 600;
+    text-align: center;
+    flex: 1;
+  }
+  .boss-header-actions {
+    display: flex;
+    gap: 16px;
+    font-size: 16px;
+    width: 28px;
+    justify-content: flex-end;
+  }
+
+  /* Company card */
+  .boss-company-card {
+    background: #fff;
+    margin: 0;
+    padding: 12px 16px;
+    border-bottom: 1px solid #f0f0f0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+  .boss-company-logo {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    color: #fff;
+    flex-shrink: 0;
+  }
+  .boss-company-info {
+    flex: 1;
+    min-width: 0;
+  }
+  .boss-company-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1a1a1a;
+  }
+  .boss-company-meta {
+    font-size: 11px;
+    color: #999;
+    display: flex;
+    gap: 8px;
+    margin-top: 1px;
+  }
+  .boss-company-salary {
+    font-size: 15px;
+    font-weight: 700;
+    color: #fa6b3d;
+  }
+
+  /* Satisfaction bar */
+  .boss-sat-bar-wrap {
+    padding: 8px 16px;
+    background: #fff;
+    border-bottom: 1px solid #f0f0f0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .boss-sat-label {
+    font-size: 11px;
+    color: #666;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .boss-sat-track {
+    flex: 1;
+    height: 6px;
+    background: #e8e8e8;
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .boss-sat-fill {
+    height: 100%;
+    border-radius: 3px;
+    background: linear-gradient(90deg, #ff4757, #ffa502, #00c2a2);
+    transition: width 0.5s ease;
+  }
+  .boss-sat-val {
+    font-size: 12px;
+    font-weight: 700;
+    color: #333;
+    min-width: 24px;
+    text-align: right;
+  }
+
+  /* HUD row */
+  .boss-hud-row {
+    display: flex;
+    padding: 6px 16px;
+    background: #fff;
+    border-bottom: 1px solid #f0f0f0;
+    gap: 16px;
+    font-size: 10px;
+    color: #999;
+    flex-shrink: 0;
+  }
+  .boss-hud-row span { color: #333; font-weight: 600; }
+  .boss-hud-danger { color: #ff4757 !important; }
+
+  /* Chat area */
+  .boss-chat-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .boss-msg {
+    display: flex;
+    gap: 8px;
+    max-width: 85%;
+  }
+  .boss-msg.me {
+    align-self: flex-end;
+    flex-direction: row-reverse;
+  }
+  .boss-msg.hr {
+    align-self: flex-start;
+  }
+  .boss-msg-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 6px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    align-self: flex-start;
+  }
+  .boss-msg-avatar.hr-avatar {
+    background: #e8f5e9;
+  }
+  .boss-msg-avatar.me-avatar {
+    background: #e3f2fd;
+  }
+  .boss-msg-content {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .boss-msg-name {
+    font-size: 10px;
+    color: #999;
+    padding: 0 4px;
+  }
+  .boss-msg.me .boss-msg-name {
+    text-align: right;
+  }
+  .boss-msg-bubble {
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 14px;
+    line-height: 1.55;
+    word-break: break-word;
+    position: relative;
+  }
+  .boss-msg.hr .boss-msg-bubble {
+    background: #fff;
+    border-top-left-radius: 2px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  }
+  .boss-msg.me .boss-msg-bubble {
+    background: var(--boss-blue);
+    color: #fff;
+    border-top-right-radius: 2px;
+  }
+  .boss-time-divider {
+    text-align: center;
+    font-size: 11px;
+    color: #bbb;
+    padding: 4px 0;
+  }
+  .boss-system-msg {
+    text-align: center;
+    font-size: 11px;
+    color: #999;
+    padding: 4px 8px;
+    background: rgba(0,0,0,0.03);
+    border-radius: 4px;
+    align-self: center;
+    max-width: 80%;
+  }
+
+  /* Input */
+  .boss-input-area {
+    padding: 8px 12px;
+    background: #f6f6f6;
+    border-top: 1px solid #eee;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .boss-input-mic {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: #f0f0f0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .boss-input-field {
+    flex: 1;
+    height: 36px;
+    border: none;
+    background: #fff;
+    border-radius: 18px;
+    padding: 0 14px;
+    font-size: 14px;
+    outline: none;
+  }
+  .boss-input-send {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--boss-blue);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    color: #fff;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  /* ============ SCREEN 2: 语音通话中 ============ */
+  .call-active-bg {
+    background: linear-gradient(180deg, #1a1a2e 0%, #16213e 40%, #0f3460 100%);
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px 24px;
+    position: relative;
+  }
+  .call-avatar-large {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 36px;
+    margin-top: 20px;
+    box-shadow: 0 8px 32px rgba(0,194,162,0.15);
+  }
+  .call-name {
+    color: #fff;
+    font-size: 20px;
+    font-weight: 600;
+    margin-top: 12px;
+    letter-spacing: 0.5px;
+  }
+  .call-role {
+    color: rgba(255,255,255,0.7);
+    font-size: 12px;
+    margin-top: 2px;
+  }
+  .call-company {
+    color: rgba(255,255,255,0.5);
+    font-size: 12px;
+    margin-top: 1px;
+  }
+  .call-timer {
+    color: rgba(255,255,255,0.6);
+    font-size: 13px;
+    margin-top: 16px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 1px;
+  }
+
+  /* Call HUD */
+  .call-hud {
+    width: 100%;
+    max-width: 300px;
+    margin-top: 24px;
+  }
+  .call-hud-label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+  .call-hud-label span:first-child {
+    color: rgba(255,255,255,0.7);
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .call-hud-label span:last-child {
+    color: rgba(255,255,255,0.9);
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .call-hud-bar {
+    width: 100%;
+    height: 4px;
+    background: rgba(255,255,255,0.15);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .call-hud-fill {
+    height: 100%;
+    border-radius: 2px;
+    background: linear-gradient(90deg, #ff4757, #ffa502, #00c2a2);
+    transition: width 0.5s ease;
+  }
+
+  /* Call transcript */
+  .call-transcript {
+    flex: 1;
+    width: 100%;
+    max-width: 320px;
+    margin-top: 16px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 0 4px;
+  }
+  .call-transcript-line {
+    display: flex;
+    gap: 8px;
+    animation: fadeIn 0.3s ease;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .call-transcript-line.me {
+    justify-content: flex-end;
+  }
+  .call-transcript-bubble {
+    padding: 8px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    line-height: 1.5;
+    max-width: 80%;
+  }
+  .call-transcript-line.hr .call-transcript-bubble {
+    background: rgba(255,255,255,0.12);
+    color: rgba(255,255,255,0.9);
+    border-top-left-radius: 4px;
+  }
+  .call-transcript-line.me .call-transcript-bubble {
+    background: rgba(0,194,162,0.3);
+    color: #fff;
+    border-top-right-radius: 4px;
+  }
+  .call-transcript-speaker {
+    font-size: 9px;
+    color: rgba(255,255,255,0.4);
+    margin-bottom: 2px;
+    padding: 0 4px;
+  }
+
+  /* Hang up */
+  .call-actions {
+    margin-top: auto;
+    padding: 16px 0 24px;
+    display: flex;
+    justify-content: center;
+    gap: 36px;
+  }
+  .call-btn {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    transition: transform 0.2s;
+  }
+  .call-btn:active { transform: scale(0.92); }
+  .call-btn-hangup {
+    background: #ff4757;
+    color: #fff;
+    box-shadow: 0 6px 20px rgba(255,71,87,0.4);
+  }
+  .call-btn-mute {
+    background: rgba(255,255,255,0.15);
+    color: rgba(255,255,255,0.8);
+    width: 48px;
+    height: 48px;
+    font-size: 18px;
+  }
+
+  /* ============ SCREEN 3: 来电接听 ============ */
+  .incoming-bg {
+    background: linear-gradient(180deg, #0d0d1a 0%, #1a1a2e 60%, #16213e 100%);
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 24px;
+  }
+  .incoming-label {
+    color: rgba(255,255,255,0.5);
+    font-size: 15px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-top: 48px;
+  }
+  .incoming-avatar {
+    width: 96px;
+    height: 96px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #e8f5e9, #a5d6a7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 44px;
+    margin-top: 32px;
+    box-shadow: 0 0 0 4px rgba(0,194,162,0.2), 0 0 0 8px rgba(0,194,162,0.08);
+    animation: pulse-ring 2s ease-in-out infinite;
+  }
+  @keyframes pulse-ring {
+    0%, 100% { box-shadow: 0 0 0 4px rgba(0,194,162,0.2), 0 0 0 8px rgba(0,194,162,0.08); }
+    50% { box-shadow: 0 0 0 8px rgba(0,194,162,0.3), 0 0 0 16px rgba(0,194,162,0.04); }
+  }
+  .incoming-name {
+    color: #fff;
+    font-size: 26px;
+    font-weight: 700;
+    margin-top: 20px;
+    letter-spacing: 1px;
+  }
+  .incoming-company {
+    color: rgba(255,255,255,0.6);
+    font-size: 14px;
+    margin-top: 4px;
+    letter-spacing: 0.5px;
+  }
+  .incoming-role {
+    color: rgba(255,255,255,0.45);
+    font-size: 12px;
+    margin-top: 2px;
+  }
+  .incoming-reminder {
+    color: rgba(255,255,255,0.35);
+    font-size: 11px;
+    margin-top: 40px;
+    letter-spacing: 1px;
+  }
+  .incoming-actions {
+    margin-top: auto;
+    padding-bottom: 32px;
+    display: flex;
+    justify-content: center;
+    gap: 60px;
+    width: 100%;
+  }
+  .incoming-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+  }
+  .incoming-btn-circle {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    transition: transform 0.2s;
+  }
+  .incoming-btn-circle:active { transform: scale(0.9); }
+  .incoming-btn-accept {
+    background: #00c2a2;
+    color: #fff;
+    box-shadow: 0 8px 24px rgba(0,194,162,0.5);
+  }
+  .incoming-btn-decline {
+    background: rgba(255,255,255,0.15);
+    color: #ff4757;
+    box-shadow: 0 8px 24px rgba(255,71,87,0.2);
+  }
+  .incoming-btn-label {
+    color: rgba(255,255,255,0.6);
+    font-size: 11px;
+    letter-spacing: 1px;
+  }
+
+  /* ============ VIEW SWITCHER ============ */
+  .view-switcher {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #fff;
+    border-radius: 24px;
+    padding: 6px;
+    display: flex;
+    gap: 4px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+    z-index: 100;
+  }
+  .view-switcher button {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    background: transparent;
+    color: #888;
+    transition: all 0.3s;
+    white-space: nowrap;
+  }
+  .view-switcher button.active {
+    background: var(--boss-blue);
+    color: #fff;
+  }
+
+  .phone-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  /* Responsive */
+  @media (max-width: 800px) {
+    body {
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      padding: 8px;
+    }
+    .phone {
+      width: 100%;
+      max-width: 375px;
+      height: 650px;
+      border-radius: 24px;
+    }
+    .phone.hidden-on-mobile {
+      display: none;
+    }
+  }
+</style>
+</head>
+<body>
+
+<!-- ==================== SCREEN 1: BOSS直聘聊天 ==================== -->
+<div class="phone-wrapper" id="screen-chat-wrapper">
+  <div class="screen-label">📱 对话界面 — Boss直聘风格</div>
+  <div class="phone notch">
+    <div class="status-bar">
+      <span>9:41</span>
+      <span>📶 🔋</span>
+    </div>
+
+    <!-- Boss直聘风格 -->
+    <div class="boss-chat">
+      <!-- Header -->
+      <div class="boss-header">
+        <div class="boss-header-top">
+          <div class="boss-back">‹</div>
+          <div class="boss-header-name">张敏 · HR负责人</div>
+          <div class="boss-header-actions">⋯</div>
+        </div>
+      </div>
+
+      <!-- Company Card -->
+      <div class="boss-company-card">
+        <div class="boss-company-logo">🤖</div>
+        <div class="boss-company-info">
+          <div class="boss-company-name">灵创科技</div>
+          <div class="boss-company-meta">
+            <span>A轮</span><span>·</span><span>AI/大模型</span><span>·</span><span>50-100人</span>
+          </div>
+        </div>
+        <div class="boss-company-salary">15K·14薪</div>
+      </div>
+
+      <!-- Satisfaction Bar -->
+      <div class="boss-sat-bar-wrap">
+        <div class="boss-sat-label">😊 满意度</div>
+        <div class="boss-sat-track">
+          <div class="boss-sat-fill" style="width: 80%"></div>
+        </div>
+        <div class="boss-sat-val">80</div>
+      </div>
+
+      <!-- HUD Row -->
+      <div class="boss-hud-row">
+        <div>🔍 暴露度 <span>20</span></div>
+        <div>💰 报价 <span>15K</span></div>
+        <div>🪤 识破 <span>0/5</span></div>
+        <div>📍 轮次 <span>1/8</span></div>
+      </div>
+
+      <!-- Chat Messages -->
+      <div class="boss-chat-area">
+        <div class="boss-time-divider">今天 14:30</div>
+
+        <div class="boss-msg hr">
+          <div class="boss-msg-avatar hr-avatar">👩‍💼</div>
+          <div class="boss-msg-content">
+            <div class="boss-msg-name">张敏</div>
+            <div class="boss-msg-bubble">
+              你好！感谢你参加面试，团队对你印象很好。我们想发一个后端开发的offer：月薪15K，14薪。公司A轮，发展很快，你觉得怎么样？
+            </div>
+          </div>
+        </div>
+
+        <div class="boss-msg me">
+          <div class="boss-msg-avatar me-avatar">🧑</div>
+          <div class="boss-msg-content">
+            <div class="boss-msg-name">我</div>
+            <div class="boss-msg-bubble">
+              15K有点低于我的预期了。我了解了下市场，1-3年后端在上海大概在18-22K。能分享一下贵司对这个岗位的预算范围吗？
+            </div>
+          </div>
+        </div>
+
+        <div class="boss-msg hr">
+          <div class="boss-msg-avatar hr-avatar">👩‍💼</div>
+          <div class="boss-msg-content">
+            <div class="boss-msg-name">张敏</div>
+            <div class="boss-msg-bubble">
+              嗯...这个岗位的预算区间大概在12K到18K之间，具体看最终的综合package。你手上的offer大概什么情况？
+            </div>
+          </div>
+        </div>
+
+        <div class="boss-system-msg">💡 提示：HR在试探你的底牌</div>
+
+        <div class="boss-msg me">
+          <div class="boss-msg-avatar me-avatar">🧑</div>
+          <div class="boss-msg-content">
+            <div class="boss-msg-name">我</div>
+            <div class="boss-msg-bubble">
+              我不太想先报数字。18K其实跟市场价还是有差距的。期权这块具体是什么政策？
+            </div>
+          </div>
+        </div>
+
+        <div class="boss-msg hr">
+          <div class="boss-msg-avatar hr-avatar">👩‍💼</div>
+          <div class="boss-msg-content">
+            <div class="boss-msg-name">张敏</div>
+            <div class="boss-msg-bubble">
+              期权这块，A轮员工一般在0.3%到0.5%，四年归属。公司明年准备B轮，届时估值会有比较大的提升——说实话，期权的价值最终取决于公司发展。
+            </div>
+          </div>
+        </div>
+
+        <div class="boss-system-msg">⚡ 你正在使用"迂回试探"策略</div>
+      </div>
+
+      <!-- Input -->
+      <div class="boss-input-area">
+        <div class="boss-input-mic">🎤</div>
+        <input class="boss-input-field" type="text" placeholder="输入你的话..." value="我倾向于把现金作为谈判主体，期权是锦上添花。另外加班费和五险一金怎么安排？">
+        <div class="boss-input-send">↑</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== SCREEN 2: 语音通话中 ==================== -->
+<div class="phone-wrapper" id="screen-call-wrapper">
+  <div class="screen-label">📞 语音通话中</div>
+  <div class="phone notch">
+    <div class="status-bar">
+      <span>9:41</span>
+      <span>📶 🔋</span>
+    </div>
+
+    <div class="call-active-bg">
+      <!-- Avatar -->
+      <div class="call-avatar-large">👩‍💼</div>
+      <div class="call-name">张敏</div>
+      <div class="call-role">HR负责人</div>
+      <div class="call-company">灵创科技 · A轮</div>
+      <div class="call-timer">⏱ 02:34</div>
+
+      <!-- Satisfaction HUD -->
+      <div class="call-hud">
+        <div class="call-hud-label">
+          <span>😊 HR满意度</span>
+          <span>72</span>
+        </div>
+        <div class="call-hud-bar">
+          <div class="call-hud-fill" style="width: 72%"></div>
+        </div>
+      </div>
+
+      <!-- Live Transcript -->
+      <div class="call-transcript">
+        <div class="call-transcript-line hr">
+          <div class="call-transcript-bubble">
+            <div class="call-transcript-speaker">张敏</div>
+            你好！感谢你参加面试，我们想给你发一个后端开发的offer：月薪15K，14薪。你觉得怎么样？
+          </div>
+        </div>
+        <div class="call-transcript-line me">
+          <div class="call-transcript-bubble">
+            <div class="call-transcript-speaker">我</div>
+            15K有点低于我的预期。我了解了下市场，1-3年后端在上海大概在18-22K。能分享一下你们的预算范围吗？
+          </div>
+        </div>
+        <div class="call-transcript-line hr">
+          <div class="call-transcript-bubble">
+            <div class="call-transcript-speaker">张敏</div>
+            （略犹豫）嗯...这个岗位的区间是12K到18K之间。你手上的其他offer大概什么情况？
+          </div>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="call-actions">
+        <button class="call-btn call-btn-mute">🎤</button>
+        <button class="call-btn call-btn-hangup">📞</button>
+        <button class="call-btn call-btn-mute">🔊</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== SCREEN 3: 来电接听 ==================== -->
+<div class="phone-wrapper" id="screen-incoming-wrapper">
+  <div class="screen-label">📲 来电接听</div>
+  <div class="phone notch">
+    <div class="status-bar">
+      <span>9:41</span>
+      <span>📶 🔋</span>
+    </div>
+
+    <div class="incoming-bg">
+      <div class="incoming-label">Boss直聘 · 面试电话</div>
+
+      <div class="incoming-avatar">👩‍💼</div>
+      <div class="incoming-name">张敏</div>
+      <div class="incoming-company">灵创科技</div>
+      <div class="incoming-role">HR负责人 · A轮AI初创公司</div>
+
+      <div class="incoming-reminder">🔔 正在响铃...</div>
+
+      <div class="incoming-actions">
+        <div class="incoming-btn">
+          <button class="incoming-btn-circle incoming-btn-decline">✕</button>
+          <span class="incoming-btn-label">拒绝</span>
+        </div>
+        <div class="incoming-btn">
+          <button class="incoming-btn-circle incoming-btn-accept">✓</button>
+          <span class="incoming-btn-label">接听</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== VIEW SWITCHER ==================== -->
+<div class="view-switcher">
+  <button class="active" onclick="switchView('chat')">💬 对话</button>
+  <button onclick="switchView('call')">📞 通话中</button>
+  <button onclick="switchView('incoming')">📲 来电</button>
+</div>
+
+<script>
+  function switchView(view) {
+    // Update buttons
+    document.querySelectorAll('.view-switcher button').forEach((btn, i) => {
+      btn.classList.toggle('active', false);
+    });
+    const buttons = document.querySelectorAll('.view-switcher button');
+    if (view === 'chat') buttons[0].classList.add('active');
+    if (view === 'call') buttons[1].classList.add('active');
+    if (view === 'incoming') buttons[2].classList.add('active');
+
+    // Show/hide screens
+    const chat = document.getElementById('screen-chat-wrapper');
+    const call = document.getElementById('screen-call-wrapper');
+    const incoming = document.getElementById('screen-incoming-wrapper');
+
+    const isMobile = window.innerWidth <= 800;
+
+    if (isMobile) {
+      chat.style.display = view === 'chat' ? 'flex' : 'none';
+      call.style.display = view === 'call' ? 'flex' : 'none';
+      incoming.style.display = view === 'incoming' ? 'flex' : 'none';
+    } else {
+      chat.style.display = 'flex';
+      call.style.display = 'flex';
+      incoming.style.display = 'flex';
+    }
+  }
+
+  // Initial state
+  if (window.innerWidth <= 800) {
+    switchView('chat');
+  }
+</script>
+
+</body>
+</html>

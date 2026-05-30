@@ -20,7 +20,18 @@ def advance_game_flow(session_state: SessionState, turn_result: TurnResult) -> S
     next_state.hr_patience = max(0, min(100, next_state.hr_patience + turn_result.delta.hr_patience))
     next_state.info_exposure = max(0, min(100, next_state.info_exposure + turn_result.delta.info_exposure))
     next_state.trap_count = max(0, next_state.trap_count + turn_result.delta.trap_count)
+    next_state.current_salary_offer = max(
+        next_state.scene_context.salary_anchor.legal_floor,
+        min(next_state.scene_context.salary_anchor.hr_initial_offer + 7000, next_state.current_salary_offer + turn_result.delta.salary_offer),
+    )
+    next_state.equity_ratio = max(0.0, min(0.5, next_state.equity_ratio + turn_result.delta.equity_ratio))
+    next_state.law_citation_count = max(0, next_state.law_citation_count + turn_result.delta.law_citation_count)
+    next_state.misjudge_count = max(0, next_state.misjudge_count + turn_result.delta.misjudge_count)
+    if turn_result.inferred_strategy:
+        next_state.strategy_history.append(turn_result.inferred_strategy)
+    if turn_result.trap_id and turn_result.trap_id not in next_state.identified_traps:
+        next_state.identified_traps.append(turn_result.trap_id)
     next_state.round_index = turn_result.next_round
-    if turn_result.is_game_over or next_state.hr_patience <= 0:
+    if turn_result.is_game_over or next_state.hr_patience <= 10:
         next_state.status = "settled"
     return next_state

@@ -10,6 +10,12 @@ class VoiceBattleEngine(VoiceBattleContract):
     def __init__(self) -> None:
         self._text_engine = TextBattleEngine()
 
+    def transcribe_for_agent(self, audio_payload: VoiceTurnPayload) -> dict:
+        try:
+            return transcribe_audio(audio_payload)
+        except Exception:
+            return {"transcript": "", "confidence": 0.0}
+
     def run_voice_turn(self, session_state: SessionState, audio_payload: VoiceTurnPayload) -> VoiceTurnResult:
         """
         输入:
@@ -23,7 +29,7 @@ class VoiceBattleEngine(VoiceBattleContract):
         示例:
         - 输入 {"audio_path":"demo.wav"} -> 输出 {"asr_text":"...","turn_result":{...}}
         """
-        asr = transcribe_audio(audio_payload)
+        asr = self.transcribe_for_agent(audio_payload)
         turn_result = self._text_engine.run_text_turn(
             session_state,
             TextTurnPayload(player_text=asr["transcript"]),
