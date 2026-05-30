@@ -10,7 +10,7 @@
         <div class="boss-header">
           <div class="boss-header-top">
             <div class="boss-back" @click="$router.push('/')">‹</div>
-            <div class="boss-header-name">张敏 · HR负责人</div>
+            <div class="boss-header-name">{{ waitingHr ? "对方正在输入中..." : "张敏 · HR负责人" }}</div>
             <div class="boss-header-actions">⋯</div>
           </div>
         </div>
@@ -47,7 +47,6 @@
                 {{ m.role === "hr" ? "👩‍💼" : "🧑" }}
               </div>
               <div class="boss-msg-content">
-                <div class="boss-msg-name">{{ m.role === "hr" ? "张敏" : "我" }}</div>
                 <div class="boss-msg-bubble">{{ m.text }}</div>
               </div>
             </div>
@@ -55,7 +54,6 @@
           <div v-if="waitingHr" class="boss-msg hr">
             <div class="boss-msg-avatar hr-avatar">👩‍💼</div>
             <div class="boss-msg-content">
-              <div class="boss-msg-name">对方正在输入中...</div>
               <div class="boss-msg-bubble boss-typing-bubble">
                 <span></span><span></span><span></span>
               </div>
@@ -83,7 +81,7 @@
  </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { runtimeAdapter } from "../runtime";
 import type { SessionState } from "../runtime/battle_runtime_adapter";
@@ -122,6 +120,8 @@ watch(
   () => [messages.value.length, waitingHr.value],
   () => scrollChatToBottom(),
 );
+
+onMounted(() => scrollChatToBottom());
 
 async function sendCustomText() {
   await runTurn({ player_text: customText.value.trim() });
@@ -193,15 +193,14 @@ const salaryText = computed(() => {
 .boss-chat-area { flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:12px 16px; display:flex; flex-direction:column; gap:12px; }
 .boss-time-divider { text-align:center; font-size:11px; color:#bbb; }
 .boss-system-msg { text-align:center; font-size:11px; color:#999; padding:4px 8px; background:rgba(0,0,0,0.03); border-radius:4px; align-self:center; max-width:80%; }
-.boss-msg { display:flex; gap:8px; max-width:85%; }
+.boss-msg { display:flex; align-items:flex-start; gap:8px; max-width:85%; }
 .boss-msg.me { align-self:flex-end; flex-direction:row-reverse; }
 .boss-msg.hr { align-self:flex-start; }
 .boss-msg-avatar { width:36px; height:36px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:16px; }
 .hr-avatar { background:#e8f5e9; }
 .me-avatar { background:#e3f2fd; }
-.boss-msg-content { display:flex; flex-direction:column; gap:2px; min-width:0; }
-.boss-msg-name { font-size:10px; color:#999; padding:0 4px; }
-.boss-msg.me .boss-msg-name { text-align:right; }
+.boss-msg-content { display:flex; flex-direction:column; gap:0; min-width:0; }
+.boss-msg.me .boss-msg-content { align-items:flex-end; }
 .boss-msg-bubble { padding:10px 14px; border-radius:8px; font-size:14px; line-height:1.5; word-break:break-word; overflow-wrap:anywhere; }
 .boss-msg.hr .boss-msg-bubble { background:#fff; border-top-left-radius:2px; box-shadow:0 1px 2px rgba(0,0,0,0.04); }
 .boss-msg.me .boss-msg-bubble { background:#00c2a2; color:#fff; border-top-right-radius:2px; }

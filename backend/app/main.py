@@ -2,6 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.session_routes import router as session_router
+from app.api.voice_verify_routes import router as voice_verify_router
+from app.api.ws_session_routes import router as ws_session_router
 
 
 app = FastAPI(title="Salary Battle API", version="0.1.0")
@@ -18,3 +20,5 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(session_router)
+app.include_router(voice_verify_router)
+app.include_router(ws_session_router)

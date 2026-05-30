@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.orchestrators.game_flow_orchestrator import GameFlowOrchestrator
+from app.modules.flow_controller.orchestrator import GameFlowOrchestrator
 from app.repositories.scene_repository import load_scene
 from app.shared_types.game_types import SessionState, TextTurnPayload
 

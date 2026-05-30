@@ -69,10 +69,17 @@ class SceneContext(BaseModel):
     strategy_delta_map: dict[StrategyType, TurnDelta]
 
 
+class ConversationMessage(BaseModel):
+    role: Literal["hr", "player", "system"] = "system"
+    content: str
+    round_index: int = 0
+
+
 class SessionState(BaseModel):
     session_id: str
     user_id: str
     user_name: str = "候选人"
+    hr_personality_id: str = "hr_smiling_tiger"
     scene_id: str = "scene_001"
     role_id: str = "role_backend"
     status: Literal["ongoing", "settled", "closed"] = "ongoing"
@@ -87,6 +94,7 @@ class SessionState(BaseModel):
     misjudge_count: int = 0
     identified_traps: list[str] = Field(default_factory=list)
     strategy_history: list[str] = Field(default_factory=list)
+    conversation_history: list[ConversationMessage] = Field(default_factory=list)
     scene_context: SceneContext
 
 
@@ -98,6 +106,7 @@ class TextTurnPayload(BaseModel):
 class VoiceTurnPayload(BaseModel):
     audio_path: str
     input_mode: InputMode = "voice"
+    mime_type: str = "audio/wav"
 
 
 class TurnResult(BaseModel):

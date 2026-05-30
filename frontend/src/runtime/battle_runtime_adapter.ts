@@ -1,7 +1,16 @@
+export type HrPersonalityMeta = {
+  personality_id: string;
+  name: string;
+  tagline: string;
+  emoji: string;
+  patience_bias?: number;
+};
+
 export type SessionState = {
   session_id: string;
   user_id: string;
   user_name: string;
+  hr_personality_id?: string;
   scene_id: string;
   role_id: string;
   status: "ongoing" | "settled" | "closed";
@@ -28,12 +37,19 @@ export type FlowDecision = {
 };
 
 export interface BattleRuntimeAdapter {
+  listHrPersonalities?(): Promise<HrPersonalityMeta[]>;
   createSession(
     userId: string,
     sceneId?: string,
     roleId?: string,
-    userName?: string
-  ): Promise<{ session: SessionState; hr_opening: string; scene_meta?: Record<string, unknown> }>;
+    userName?: string,
+    hrPersonalityId?: string
+  ): Promise<{
+    session: SessionState;
+    hr_opening: string;
+    scene_meta?: Record<string, unknown>;
+    hr_personality_meta?: HrPersonalityMeta;
+  }>;
   textTurn(sessionId: string, payload: { strategy?: string; player_text?: string }): Promise<{ result: TurnResult; session: SessionState; flow?: FlowDecision }>;
   voiceTurn(sessionId: string, payload: { audio_file?: File; audio_path?: string }): Promise<{
     asr: { transcript: string; confidence: number };

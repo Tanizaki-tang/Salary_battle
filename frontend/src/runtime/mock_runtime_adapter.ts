@@ -1,7 +1,15 @@
 import dialogTree from "../mock/dialog_tree.json";
 import resultRules from "../mock/result_rules.json";
 import scenario from "../mock/scenario.json";
-import type { BattleRuntimeAdapter, SessionState } from "./battle_runtime_adapter";
+import type { BattleRuntimeAdapter, HrPersonalityMeta, SessionState } from "./battle_runtime_adapter";
+
+const MOCK_PERSONALITIES: HrPersonalityMeta[] = [
+  { personality_id: "hr_newbie", name: "菜鸟新人", tagline: "紧张没底气，容易说漏信息", emoji: "🐣" },
+  { personality_id: "hr_robot", name: "冷漠流程型", tagline: "按系统流程办事，几乎无情绪波动", emoji: "🤖" },
+  { personality_id: "hr_aggressive", name: "强势压价型", tagline: "开门见山压价，耐心极低", emoji: "💪" },
+  { personality_id: "hr_honest", name: "老实人型", tagline: "真诚坦率，容易被说服", emoji: "😇" },
+  { personality_id: "hr_smiling_tiger", name: "笑面虎型", tagline: "表面热情，话术圆滑", emoji: "😊" },
+];
 
 const sessions = new Map<string, SessionState>();
 const roleToScene: Record<string, string> = {
@@ -26,14 +34,20 @@ const sceneInitial: Record<string, { max_round: number; hr_patience: number; inf
 };
 
 export const mockRuntimeAdapter: BattleRuntimeAdapter = {
-  async createSession(userId, sceneId, roleId, userName) {
+  async listHrPersonalities() {
+    return MOCK_PERSONALITIES;
+  },
+  async createSession(userId, sceneId, roleId, userName, hrPersonalityId) {
     const resolvedScene = sceneId || roleToScene[roleId || "role_backend"] || "scene_001";
     const initial = sceneInitial[resolvedScene] || sceneInitial.scene_001;
     const resolvedName = (userName || "").trim() || "候选人";
+    const personalityId = hrPersonalityId || "hr_smiling_tiger";
+    const personalityMeta = MOCK_PERSONALITIES.find((p) => p.personality_id === personalityId) || MOCK_PERSONALITIES[4];
     const session: SessionState = {
       session_id: `sess_mock_${Date.now()}`,
       user_id: userId,
       user_name: resolvedName,
+      hr_personality_id: personalityId,
       scene_id: resolvedScene,
       role_id: roleId || "role_backend",
       status: "ongoing",
@@ -48,6 +62,7 @@ export const mockRuntimeAdapter: BattleRuntimeAdapter = {
       session,
       hr_opening: sceneOpening[resolvedScene] || sceneOpening.scene_001,
       scene_meta: { scene_id: resolvedScene, role_hint: session.role_id },
+      hr_personality_meta: personalityMeta,
     };
   },
   async textTurn(sessionId, payload) {

@@ -1,7 +1,0 @@
-appId: com.salarybattle.desktop
-productName: SalaryBattle
-files:
-  - main/**
-  - package.json
-win:
-  target: nsis

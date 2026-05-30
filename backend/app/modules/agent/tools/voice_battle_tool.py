@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-from app.contracts.voice_battle_contract import VoiceBattleContract
+from app.modules.voice_battle.voice_battle_engine import VoiceBattleEngine
 from app.shared_types.game_types import AgentToolCallTrace, VoiceTurnPayload
 
 
 class VoiceBattleTool:
     """Expose voice_battle as an agent-callable tool."""
 
-    def __init__(self, voice_contract: VoiceBattleContract) -> None:
-        self._voice_contract = voice_contract
+    def __init__(self, voice_engine: VoiceBattleEngine) -> None:
+        self._voice_engine = voice_engine
 
     def transcribe_for_agent(self, payload: VoiceTurnPayload) -> tuple[str, float, AgentToolCallTrace]:
-        asr = self._voice_contract.transcribe_for_agent(payload)
+        asr = self._voice_engine.transcribe_for_agent(payload, mime_type=payload.mime_type)
         transcript = str(asr.get("transcript", "")).strip()
         confidence = float(asr.get("confidence", 0.0))
         trace = AgentToolCallTrace(

@@ -2,34 +2,43 @@ from __future__ import annotations
 
 from typing import Final
 
+from app.prompt.hr_personality import get_personality_prompt
+from app.prompt.traps_prompt import get_traps_prompt
+
 DEFAULT_SCENE_ID: Final[str] = "scene_001"
 
-_CHARACTER_PROMPTS: dict[str, str] = {
+_SCENE_PROMPTS: dict[str, str] = {
     "scene_001": (
-        "你当前扮演：初创公司后端岗 HR。\n"
-        "人格与语气：务实、强调预算约束、关注技术价值与交付确定性；"
-        "可强硬但保持专业，对证据充分的谈判可有限让步。"
+        "你当前服务的谈判场景：初创公司后端岗。\n"
+        "公司背景：A轮 AI/大模型创业公司，50-100人，预算偏紧但重视技术人才。\n"
+        "你的任务：在控制用人成本的前提下完成 offer 谈判，并维护公司雇主形象。"
     ),
     "scene_002": (
-        "你当前扮演：中型互联网产品岗 HR。\n"
-        "人格与语气：沟通细致、强调流程与协作、关注岗位匹配和跨团队推动力；"
-        "回答偏结构化，愿意拆分问题讨论，但对超预算诉求保持克制。"
+        "你当前服务的谈判场景：中型互联网产品岗。\n"
+        "公司背景：流程规范、强调跨团队协作与岗位匹配度。\n"
+        "你的任务：围绕职级与绩效体系解释 offer，避免超预算承诺。"
     ),
     "scene_003": (
-        "你当前扮演：消费行业销售岗 HR。\n"
-        "人格与语气：结果导向、表达直接、关注提成结构与冲刺能力；"
-        "对只谈底薪的诉求敏感，鼓励围绕业绩与激励博弈。"
+        "你当前服务的谈判场景：消费行业销售岗。\n"
+        "公司背景：结果导向，底薪+提成结构，关注业绩冲刺能力。\n"
+        "你的任务：引导候选人关注整体激励 package，而非只谈底薪。"
     ),
 }
 
 
-def get_character_prompt(scene_id: str | None) -> str:
-    """按场景返回角色性格设定提示词。"""
+def get_scene_prompt(scene_id: str | None) -> str:
     sid = (scene_id or "").strip() or DEFAULT_SCENE_ID
-    return _CHARACTER_PROMPTS.get(sid, _CHARACTER_PROMPTS[DEFAULT_SCENE_ID])
+    return _SCENE_PROMPTS.get(sid, _SCENE_PROMPTS[DEFAULT_SCENE_ID])
 
 
-def build_system_prompt(base_prompt: str, scene_id: str | None) -> str:
-    """把通用规则与场景人格拼接为最终 system prompt。"""
-    character_prompt = get_character_prompt(scene_id)
-    return f"{character_prompt}\n\n{base_prompt}"
+def get_character_prompt(scene_id: str | None) -> str:
+    """兼容旧调用：仅返回场景设定。"""
+    return get_scene_prompt(scene_id)
+
+
+def build_system_prompt(base_prompt: str, scene_id: str | None, personality_id: str | None = None) -> str:
+    """把场景、HR人格、陷阱规则与通用规则拼接为最终 system prompt。"""
+    scene_prompt = get_scene_prompt(scene_id)
+    personality_prompt = get_personality_prompt(personality_id)
+    traps_prompt = get_traps_prompt(scene_id)
+    return f"{scene_prompt}\n\n{personality_prompt}\n\n{traps_prompt}\n\n{base_prompt}"

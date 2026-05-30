@@ -7,10 +7,12 @@ from uuid import uuid4
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
-from app.orchestrators.game_flow_orchestrator import GameFlowOrchestrator
-from app.modules.voice_battle.speech_gateway import transcribe_audio
+from app.modules.flow_controller.orchestrator import GameFlowOrchestrator
+from app.modules.voice_battle.speech_gateway import AsrPipelineError, transcribe_audio
+from app.modules.voice_battle.tts_gateway import synthesize_wav_base64
+from app.prompt.hr_personality import apply_personality_patience, get_personality_meta, list_personalities, resolve_personality_id
 from app.repositories.scene_repository import load_scene, resolve_scene_id
-from app.shared_types.game_types import ApiResponse, SessionState, TextTurnPayload, VoiceTurnPayload
+from app.shared_types.game_types import ApiResponse, ConversationMessage, SessionState, TextTurnPayload, VoiceTurnPayload
 
 
 router = APIRouter(prefix="/api/v1", tags=["game"])
@@ -23,6 +25,11 @@ def health() -> ApiResponse:
     return ApiResponse(data={"status": "healthy", "service": "salary-battle-api", "version": "v1.2"})
 
 
+@router.get("/hr-personalities")
+def get_hr_personalities() -> ApiResponse:
+    return ApiResponse(data={"personalities": list_personalities()})
+
+
 @router.post("/sessions")
 def create_session(payload: dict) -> ApiResponse:
     user_id = payload.get("user_id")
@@ -31,19 +38,29 @@ def create_session(payload: dict) -> ApiResponse:
     user_name = (payload.get("user_name") or "").strip() or "候选人"
     scene_id = resolve_scene_id(scene_id=payload.get("scene_id"), role_id=payload.get("role_id"))
     role_id = payload.get("role_id") or "role_backend"
+    hr_personality_id = resolve_personality_id(payload.get("hr_personality_id"))
+    personality_meta = get_personality_meta(hr_personality_id)
     scene_context = load_scene(scene_id)
     initial = scene_context.initial_state
     session = SessionState(
         session_id=f"sess_{uuid4().hex[:8]}",
         user_id=user_id,
         user_name=user_name,
+        hr_personality_id=hr_personality_id,
         role_id=role_id,
         scene_id=scene_id,
         max_round=initial.max_round,
-        hr_patience=initial.hr_patience,
+        hr_patience=apply_personality_patience(initial.hr_patience, hr_personality_id),
         info_exposure=initial.info_exposure,
         trap_count=initial.trap_count,
         current_salary_offer=scene_context.salary_anchor.hr_initial_offer,
+        conversation_history=[
+            ConversationMessage(
+                role="hr",
+                content=f"{user_name}，{scene_context.opening_line}",
+                round_index=0,
+            )
+        ],
         scene_context=scene_context,
     )
     SESSIONS[session.session_id] = session
@@ -52,6 +69,12 @@ def create_session(payload: dict) -> ApiResponse:
             "session": session.model_dump(),
             "hr_opening": f"{user_name}，{scene_context.opening_line}",
             "scene_meta": scene_context.meta.model_dump(),
+            "hr_personality_meta": {
+                "personality_id": personality_meta.personality_id,
+                "name": personality_meta.name,
+                "tagline": personality_meta.tagline,
+                "emoji": personality_meta.emoji,
+            },
         }
     )
 
@@ -72,14 +95,15 @@ async def voice_turn(session_id: str, audio_file: UploadFile = File(...)) -> Api
     if not session:
         raise HTTPException(status_code=404, detail="session not found")
     suffix = Path(audio_file.filename or "").suffix or ".wav"
+    mime_type = (audio_file.content_type or "audio/wav").strip()
     tmp_path = ""
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, prefix="salary_battle_audio_") as tmp:
             tmp_path = tmp.name
             tmp.write(await audio_file.read())
-        voice_payload = VoiceTurnPayload(audio_path=tmp_path)
+        voice_payload = VoiceTurnPayload(audio_path=tmp_path, mime_type=mime_type)
         next_state, voice_result, flow = orchestrator.run_voice_turn(session, voice_payload)
-    except Exception as exc:
+    except AsrPipelineError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     finally:
         if tmp_path:
@@ -113,14 +137,15 @@ def settle(session_id: str) -> ApiResponse:
 @router.post("/speech/asr")
 async def asr(audio_file: UploadFile = File(...)) -> ApiResponse:
     suffix = Path(audio_file.filename or "").suffix or ".wav"
+    mime_type = (audio_file.content_type or "audio/wav").strip()
     tmp_path = ""
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, prefix="salary_battle_asr_") as tmp:
             tmp_path = tmp.name
             tmp.write(await audio_file.read())
-        asr_result = transcribe_audio(VoiceTurnPayload(audio_path=tmp_path))
-        return ApiResponse(data={**asr_result, "file": audio_file.filename})
-    except Exception as exc:
+        asr_result = transcribe_audio(VoiceTurnPayload(audio_path=tmp_path, mime_type=mime_type))
+        return ApiResponse(data={**asr_result, "file": audio_file.filename, "mime_type": mime_type})
+    except AsrPipelineError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     finally:
         if tmp_path:
@@ -128,3 +153,14 @@ async def asr(audio_file: UploadFile = File(...)) -> ApiResponse:
                 os.remove(tmp_path)
             except OSError:
                 pass
+
+
+@router.post("/speech/tts")
+def tts(payload: dict) -> ApiResponse:
+    text = str(payload.get("text", "")).strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text required")
+    try:
+        return ApiResponse(data=synthesize_wav_base64(text))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc

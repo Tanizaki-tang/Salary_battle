@@ -1,12 +1,12 @@
 # Salary Battle（劳资拉扯模拟器）
 
-一个面向求职场景的谈薪模拟项目。当前阶段以**在线版**为主，支持文字回合与语音回合（ASR）两条链路，并提供前端 `mock` 运行时兜底。
+一个面向求职场景的谈薪模拟项目。当前阶段以**在线版**为主，后端采用 `HR Agent + 语音工具` 主链路，并提供前端 `mock` 运行时兜底。
 
 ## 当前状态
 
 - 本期主交付：在线 `HTML` 版本（`Vue + FastAPI + SQLite + sherpa-onnx`）
 - 团队分工：`1 人核心链路 + 2 人核心功能`
-- 已有后端骨架：健康检查、开局、文字回合、语音回合、结算与落库
+- 已有后端骨架：健康检查、开局、Agent回合决策、语音回合、结算与落库
 - 已有前端骨架：开始页、对话页、结果页 + `api/mock` 双适配器
 
 ## 目录结构
@@ -15,16 +15,17 @@
 Salary_battle/
 ├─ backend/
 │  ├─ app/
-│  │  ├─ api/                    # FastAPI 路由
-│  │  ├─ contracts/              # 模块契约（函数签名）
+│  │  ├─ api/                    # FastAPI 路由（REST + WebSocket）
 │  │  ├─ modules/
-│  │  │  ├─ flow_controller/     # 核心链路：状态、结算、落库
-│  │  │  ├─ text_battle/         # 核心功能1：文字回合
-│  │  │  └─ voice_battle/        # 核心功能2：语音回合
-│  │  ├─ orchestrators/          # 编排层
+│  │  │  ├─ agent/               # HR Agent 决策主模块
+│  │  │  ├─ flow_controller/     # 编排、状态机、阶段策略、结算、落库
+│  │  │  └─ voice_battle/        # 语音识别能力模块
+│  │  ├─ prompt/                 # 角色/陷阱 prompt
+│  │  ├─ repositories/           # 场景数据
+│  │  ├─ service/                # LLM 环境配置
 │  │  ├─ shared_types/           # 统一输入输出类型
 │  │  └─ main.py                 # FastAPI 入口
-│  ├─ scripts/                   # 契约校验与本地 demo
+│  ├─ scripts/                   # 本地 demo
 │  ├─ requirements.txt
 │  └─ app.db
 ├─ frontend/
@@ -46,14 +47,13 @@ Salary_battle/
 
 - **成员 A（核心链路）**
   - `backend/app/api/`
-  - `backend/app/orchestrators/`
   - `backend/app/modules/flow_controller/`
-- **成员 B（文字功能）**
-  - `backend/app/modules/text_battle/`
+- **成员 B（Agent能力）**
+  - `backend/app/modules/agent/`
 - **成员 C（语音功能）**
   - `backend/app/modules/voice_battle/`
 
-原则：模块间通过 `contracts` 与 `shared_types` 交互，避免跨模块直接耦合。
+原则：模块间通过 `shared_types` 约定数据结构，编排逻辑集中在 `flow_controller/orchestrator.py`。
 
 ## 快速启动
 
@@ -67,13 +67,54 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 
 ### 语音 ASR 配置（sherpa-onnx）
 
-后端语音回合与 `/api/v1/speech/asr` 使用 `sherpa-onnx` 离线识别。启动前配置环境变量：
+后端语音回合、WebSocket 实时语音与 `/api/v1/speech/asr` 使用 **offline paraformer** 离线识别。
 
-- `SHERPA_ONNX_MODEL_TYPE=paraformer`（可选值：`paraformer` / `transducer`）
-- `SHERPA_ONNX_MODEL_DIR`：模型目录（paraformer 目录内需包含 `tokens.txt` + `model.onnx` 或 `model.int8.onnx`）
-- 可选：`SHERPA_ONNX_PROVIDER=cpu`、`SHERPA_ONNX_NUM_THREADS=1`、`SHERPA_ONNX_DECODING_METHOD=greedy_search`
+**不要用 HuggingFace 的 streaming zipformer**（`models/models` 或 `git clone huggingface.co/...streaming...`），与当前 `OfflineRecognizer` API 不兼容。
 
-上传音频要求：单声道、16-bit PCM 的 wav 文件。
+#### 1) 下载模型（GitHub Releases，推荐）
+
+```powershell
+cd D:\School\HackSong\Salary_battle\models
+curl.exe -L -o paraformer-zh.tar.bz2 https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-2023-09-14.tar.bz2
+tar -xjf paraformer-zh.tar.bz2
+```
+
+解压后目录：`models/sherpa-onnx-paraformer-zh-2023-09-14/`（含 `tokens.txt`、`model.int8.onnx`、`test_wavs/`）
+
+#### 2) 安装 FFmpeg（浏览器 webm 转 wav 必装）
+
+- 下载：https://www.gyan.dev/ffmpeg/builds/ （`ffmpeg-release-essentials.zip`）
+- 将 `bin` 加入 PATH，或设置 `FFMPEG_PATH=D:\path\to\ffmpeg.exe`
+
+#### 3) 环境变量
+
+- `SHERPA_ONNX_MODEL_TYPE=paraformer`
+- `SHERPA_ONNX_MODEL_DIR=D:\School\HackSong\Salary_battle\models\sherpa-onnx-paraformer-zh-2023-09-14`
+- 可选：`SHERPA_ONNX_PROVIDER=cpu`、`SHERPA_ONNX_NUM_THREADS=1`、`FFMPEG_PATH=`
+
+#### 4) 语音链路验证接口
+
+```bash
+# 诊断 ASR / FFmpeg / LLM 是否就绪
+curl http://127.0.0.1:8000/api/v1/voice/verify
+
+# 用模型自带测试音频验证识别
+curl -X POST http://127.0.0.1:8000/api/v1/voice/verify-realtime ^
+  -F "audio_file=@models/sherpa-onnx-paraformer-zh-2023-09-14/test_wavs/0.wav"
+```
+
+`ready: true` 且 `verify-realtime` 返回非空 `transcript` 即表示语音链路可用。
+
+### 语音 TTS 配置（sherpa-onnx / VITS）
+
+实时语音 WebSocket 可启用后端 TTS（服务端合成 wav，前端直接播放）：
+
+- `REALTIME_TTS_ENABLED=true`
+- `REALTIME_TTS_MODE=backend`
+- `SHERPA_ONNX_TTS_MODEL_TYPE=vits`
+- `SHERPA_ONNX_TTS_MODEL_DIR`：TTS 模型目录（需包含 `tokens.txt` + `model.onnx` 或 `model.int8.onnx`；中文模型通常还带 `lexicon.txt` 与 `phone.fst/date.fst/number.fst`）
+
+也提供 HTTP 接口：`POST /api/v1/speech/tts`，请求体 `{"text":"..."}`，返回 `audio_b64`（wav）。
 
 健康检查：
 
@@ -95,7 +136,6 @@ npm run dev
 
 ```bash
 cd backend
-python scripts/combine_modules.py
 python scripts/run_local_demo.py
 ```
 
