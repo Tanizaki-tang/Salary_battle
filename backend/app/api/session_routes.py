@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import tempfile
+from pathlib import Path
 from uuid import uuid4
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 
+from app.modules.voice_battle.speech_gateway import SpeechRecognitionError
+from app.modules.voice_battle.tts_gateway import tts_output_dir
 from app.orchestrators.game_flow_orchestrator import GameFlowOrchestrator
 from app.shared_types.game_types import ApiResponse, SessionState, TextTurnPayload, VoiceTurnPayload
 
@@ -11,6 +16,7 @@ from app.shared_types.game_types import ApiResponse, SessionState, TextTurnPaylo
 router = APIRouter(prefix="/api/v1", tags=["game"])
 orchestrator = GameFlowOrchestrator()
 SESSIONS: dict[str, SessionState] = {}
+SUPPORTED_AUDIO_SUFFIXES = {".wav", ".mp3", ".m4a", ".webm"}
 
 
 @router.get("/health")
@@ -43,16 +49,34 @@ async def voice_turn(session_id: str, audio_file: UploadFile = File(...)) -> Api
     session = SESSIONS.get(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="session not found")
-    voice_payload = VoiceTurnPayload(audio_path=audio_file.filename or "unknown.wav")
-    next_state, voice_result = orchestrator.run_voice_turn(session, voice_payload)
-    SESSIONS[session_id] = next_state
-    return ApiResponse(
-        data={
-            "asr": {"transcript": voice_result.asr_text, "confidence": voice_result.confidence},
-            "result": voice_result.turn_result.model_dump(),
-            "session": next_state.model_dump(),
-        }
-    )
+
+    audio_path = await _save_upload_audio(audio_file)
+    try:
+        voice_payload = VoiceTurnPayload(audio_path=str(audio_path))
+        next_state, voice_result = await orchestrator.run_voice_turn_with_tts(session, voice_payload)
+        if voice_result.hr_audio_path:
+            voice_result.hr_audio_url = f"/api/v1/speech/tts/{Path(voice_result.hr_audio_path).name}"
+        SESSIONS[session_id] = next_state
+        return ApiResponse(
+            data={
+                "asr": {"transcript": voice_result.asr_text, "confidence": voice_result.confidence},
+                "result": voice_result.turn_result.model_dump(),
+                "tts": {
+                    "audio_url": voice_result.hr_audio_url,
+                    "voice": voice_result.tts_voice,
+                    "error": voice_result.tts_error,
+                },
+                "session": next_state.model_dump(),
+            }
+        )
+    except SpeechRecognitionError as exc:
+        return ApiResponse(
+            code=5002,
+            message="ASR failed, please retry or use text-turn",
+            data={"hint": str(exc)},
+        )
+    finally:
+        audio_path.unlink(missing_ok=True)
 
 
 @router.post("/sessions/{session_id}/settle")
@@ -68,4 +92,34 @@ def settle(session_id: str) -> ApiResponse:
 
 @router.post("/speech/asr")
 async def asr(audio_file: UploadFile = File(...)) -> ApiResponse:
-    return ApiResponse(data={"transcript": "我想确认一下试用期薪资和转正后的基数。", "confidence": 0.9, "file": audio_file.filename})
+    audio_path = await _save_upload_audio(audio_file)
+    try:
+        result = orchestrator.voice_engine.transcribe_only(VoiceTurnPayload(audio_path=str(audio_path)))
+        return ApiResponse(data={**result, "file": audio_file.filename})
+    except SpeechRecognitionError as exc:
+        return ApiResponse(
+            code=5002,
+            message="ASR failed, please retry or use text-turn",
+            data={"hint": str(exc)},
+        )
+    finally:
+        audio_path.unlink(missing_ok=True)
+
+
+@router.get("/speech/tts/{filename}")
+def tts_audio(filename: str) -> FileResponse:
+    audio_path = tts_output_dir() / filename
+    if not audio_path.is_file() or audio_path.suffix.lower() != ".mp3":
+        raise HTTPException(status_code=404, detail="tts audio not found")
+    return FileResponse(path=audio_path, media_type="audio/mpeg", filename=filename)
+
+
+async def _save_upload_audio(audio_file: UploadFile) -> Path:
+    suffix = Path(audio_file.filename or "").suffix.lower()
+    if suffix not in SUPPORTED_AUDIO_SUFFIXES:
+        raise HTTPException(status_code=400, detail="audio_file must be wav/mp3/m4a/webm")
+
+    with tempfile.NamedTemporaryFile(prefix="salary_battle_upload_", suffix=suffix, delete=False) as tmp:
+        audio_path = Path(tmp.name)
+        tmp.write(await audio_file.read())
+    return audio_path

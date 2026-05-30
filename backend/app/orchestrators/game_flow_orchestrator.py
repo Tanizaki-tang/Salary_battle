@@ -31,6 +31,12 @@ class GameFlowOrchestrator:
         result = self.voice_engine.run_voice_turn(session_state, voice_payload)
         return advance_game_flow(session_state, result.turn_result), result
 
+    async def run_voice_turn_with_tts(
+        self, session_state: SessionState, voice_payload: VoiceTurnPayload
+    ) -> tuple[SessionState, VoiceTurnResult]:
+        result = await self.voice_engine.run_voice_turn_with_tts(session_state, voice_payload)
+        return advance_game_flow(session_state, result.turn_result), result
+
     def settle_and_persist(self, session_state: SessionState) -> tuple[SettleResult, PersistResult]:
         settle_result = settle_session(session_state)
         persist_result = save_session_result(session_state.user_id, settle_result, session_state.session_id)

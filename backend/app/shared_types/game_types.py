@@ -53,6 +53,10 @@ class VoiceTurnResult(BaseModel):
     asr_text: str
     confidence: float
     turn_result: TurnResult
+    hr_audio_path: Optional[str] = None
+    hr_audio_url: Optional[str] = None
+    tts_voice: Optional[str] = None
+    tts_error: Optional[str] = None
 
 
 class SettleResult(BaseModel):
