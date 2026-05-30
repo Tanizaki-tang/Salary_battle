@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.contracts.text_battle_contract import TextBattleContract
 from app.contracts.voice_battle_contract import VoiceBattleContract
 from app.modules.text_battle.text_battle_engine import TextBattleEngine
 from app.modules.voice_battle.speech_gateway import transcribe_audio
@@ -7,8 +8,8 @@ from app.shared_types.game_types import SessionState, TextTurnPayload, VoiceTurn
 
 
 class VoiceBattleEngine(VoiceBattleContract):
-    def __init__(self) -> None:
-        self._text_engine = TextBattleEngine()
+    def __init__(self, text_engine: TextBattleContract | None = None) -> None:
+        self._text_engine: TextBattleContract = text_engine or TextBattleEngine()
 
     def run_voice_turn(self, session_state: SessionState, audio_payload: VoiceTurnPayload) -> VoiceTurnResult:
         """
