@@ -4,6 +4,7 @@ import logging
 import time
 
 from app.modules.agent.hr_negotiation_agent import HrNegotiationAgent
+from app.modules.fantasy_events.fantasy_events import pick_fantasy_event
 from app.modules.flow_controller.persistence_adapter import save_session_result
 from app.modules.flow_controller.phase_policy import decide_next_phase, resolve_effective_max_round
 from app.modules.flow_controller.session_state_machine import advance_game_flow
@@ -32,10 +33,22 @@ class GameFlowOrchestrator:
     ) -> tuple[SessionState, TurnResult, FlowDecision]:
         started = time.perf_counter()
         player_text = text_payload.player_text or text_payload.strategy or ""
+        event = pick_fantasy_event(session_state.session_id, round_index=session_state.round_index, salt=player_text[:32])
+        if event is not None:
+            session_state.fantasy_event_id = event.event_id
+            session_state.fantasy_event_title = event.title
+            session_state.fantasy_event_announce = event.announce
+            session_state.conversation_history.append(
+                ConversationMessage(role="system", content=f"【事件】{event.title}：{event.announce}", round_index=session_state.round_index)
+            )
         t0 = time.perf_counter()
         decision = self.hr_agent.decide_text_turn(session_state, player_text)
         t1 = time.perf_counter()
         turn_result = self._decision_to_turn_result(session_state, decision)
+        if event is not None:
+            turn_result.fantasy_event_id = event.event_id
+            turn_result.fantasy_event_title = event.title
+            turn_result.fantasy_event_announce = event.announce
         next_state = advance_game_flow(session_state, turn_result)
         t2 = time.perf_counter()
         self._append_round_history(next_state, decision.player_text_used, turn_result.hr_reply, turn_result.next_round)

@@ -112,10 +112,16 @@
         <div class="boss-header">
           <div class="boss-header-top">
             <div class="boss-back" @click="$router.push('/')">‹</div>
-            <div class="boss-header-center">
-              <div class="boss-header-name">{{ waitingHr ? "对方正在输入中..." : hrHeaderName }}</div>
-              <div v-if="!waitingHr && hrPersonalityTagline" class="boss-header-tagline">{{ hrPersonalityTagline }}</div>
-            </div>
+            <div class="boss-header-name">{{ waitingHr ? "对方正在输入中..." : hrHeaderName }}</div>
+            <button
+              type="button"
+              class="boss-video-btn"
+              title="HR 视频来电"
+              :disabled="videoCall.isActive.value"
+              @click="onRequestVideoCall"
+            >
+              📹
+            </button>
             <button type="button" class="boss-bgm-btn" title="BGM 音量" @click="showBgmPanel = true">🔊</button>
             <button
               v-if="showExpandButton || isExpanded"
@@ -169,7 +175,6 @@
                 :alt="m.role === 'hr' ? 'HR' : '我'"
               />
               <div class="boss-msg-content">
-                <div v-if="m.role === 'hr'" class="boss-msg-role">{{ hrRoleLabel }}</div>
                 <div class="boss-msg-bubble">{{ m.text }}</div>
               </div>
             </div>
@@ -177,7 +182,6 @@
           <div v-if="waitingHr" class="boss-msg hr">
             <img class="boss-msg-avatar" :src="bossAvatarUrl" alt="HR" />
             <div class="boss-msg-content">
-              <div class="boss-msg-role">{{ hrRoleLabel }}</div>
               <div class="boss-msg-bubble boss-typing-bubble">
                 <span></span><span></span><span></span>
               </div>
@@ -204,6 +208,33 @@
       </div>
     </div>
   </section>
+
+  <HrIncomingCall
+    :visible="videoCall.phase.value === 'ringing'"
+    :hr-name="hrVideoMeta.name"
+    :hr-tagline="hrVideoMeta.tagline"
+    :avatar-url="bossAvatarUrl"
+    @accept="onAcceptVideoCall"
+    @decline="onDeclineVideoCall"
+  />
+
+  <HrVideoCallOverlay
+    :visible="videoCall.isActive.value || videoCall.phase.value === 'error'"
+    :hr-name="videoCall.hrDisplayName.value"
+    :avatar-url="bossAvatarUrl"
+    :hr-subtitle="videoCall.hrSubtitle.value"
+    :hr-speaking="videoCall.hrSpeaking.value"
+    :status-text="videoCall.statusText.value"
+    :error-message="videoCall.errorMessage.value"
+    :muted="videoCall.muted.value"
+    :camera-off="videoCall.cameraOff.value"
+    :api-key-configured="videoCall.config.value?.api_key_configured"
+    @hangup="videoCall.hangUp()"
+    @toggle-mute="videoCall.toggleMute()"
+    @toggle-camera="videoCall.toggleCamera()"
+    @interrupt="videoCall.interruptHr()"
+    @preview-ready="videoCall.attachPreview"
+  />
 </template>
 
 <script setup lang="ts">
@@ -212,15 +243,18 @@ import { useRoute, useRouter } from "vue-router";
 import { bossAvatarUrl, playerAvatarUrl } from "../assets/avatars";
 import BattleCardLandscape from "../components/battle/BattleCardLandscape.vue";
 import BattleTurnCountdown from "../components/battle/BattleTurnCountdown.vue";
+import HrIncomingCall from "../components/video-call/HrIncomingCall.vue";
+import HrVideoCallOverlay from "../components/video-call/HrVideoCallOverlay.vue";
 import type { BubbleEntrance } from "../types/bubbleEntrance";
 import { normalizeBubbleEntrance } from "../types/bubbleEntrance";
-import { syncHrPersonalityMeta, type HrPersonalityMeta } from "../constants/hr_personalities";
+import { isDevVariant } from "../config/app_variant";
 import { useBattleCardGame } from "../composables/useBattleCardGame";
 import { useCardModeTrigger } from "../composables/useCardModeTrigger";
 import { playCardModePrelude } from "../composables/useCardModePrelude";
 import { useBattleMood } from "../composables/useBattleMood";
 import { useBattleTurnCountdown } from "../composables/useBattleTurnCountdown";
 import { useBattleViewport } from "../composables/useBattleViewport";
+import { useHrVideoCall } from "../composables/useHrVideoCall";
 import { runtimeAdapter } from "../runtime";
 import type { SessionState } from "../runtime/battle_runtime_adapter";
 
@@ -434,28 +468,74 @@ function unlockBgm() {
   window.removeEventListener("keydown", unlockBgm);
 }
 
-const hrPersonalityMeta = ref<HrPersonalityMeta | null>(null);
-
 const playerDisplayName = computed(() => {
   const name = (session.value?.user_name || "").trim();
-  return name && name !== "候选人" ? `${name} · 候选人` : "候选人";
+  return name ? `${name} · 候选人` : "候选人";
 });
 
 const hrRoleLabel = computed(() => {
-  const meta = hrPersonalityMeta.value;
-  if (meta?.name) return `${meta.emoji || "😊"} ${meta.name} · HR`;
-  return "HR";
+  const metaRaw = sessionStorage.getItem("hrPersonalityMeta");
+  if (metaRaw) {
+    try {
+      const meta = JSON.parse(metaRaw) as { emoji?: string; name?: string };
+      return `${meta.emoji || "😊"} ${meta.name || "张敏"} · HR`;
+    } catch {
+      /* ignore */
+    }
+  }
+  return "张敏 · HR";
 });
 
-const hrHeaderName = computed(() => {
-  const meta = hrPersonalityMeta.value;
-  if (meta?.name) return `${meta.name} · HR负责人`;
-  return "HR负责人";
+const hrVideoMeta = computed(() => {
+  const metaRaw = sessionStorage.getItem("hrPersonalityMeta");
+  if (metaRaw) {
+    try {
+      const meta = JSON.parse(metaRaw) as { name?: string; tagline?: string };
+      return {
+        name: meta.name || "HR",
+        tagline: meta.tagline || "薪资谈判 · 视频通话",
+      };
+    } catch {
+      /* ignore */
+    }
+  }
+  return { name: "张敏", tagline: "HR负责人 · 灵创科技" };
 });
 
-const hrPersonalityTagline = computed(() => hrPersonalityMeta.value?.tagline || "");
+const hrHeaderName = computed(() => `${hrVideoMeta.value.name} · HR负责人`);
 
-const expandButtonTitle = computed(() => (isExpanded.value ? "退出全屏" : "进入卡牌阶段"));
+const videoCall = useHrVideoCall(() => sessionId.value);
+let videoCallRingTimer: ReturnType<typeof setTimeout> | null = null;
+let videoCallRingDismissed = false;
+
+function onRequestVideoCall() {
+  videoCall.ring();
+}
+
+function onAcceptVideoCall() {
+  videoCallRingDismissed = true;
+  void videoCall.acceptCall();
+}
+
+function onDeclineVideoCall() {
+  videoCallRingDismissed = true;
+  videoCall.dismissRing();
+}
+
+function scheduleHrVideoRing() {
+  if (videoCallRingDismissed || isExpanded.value) return;
+  videoCallRingTimer = window.setTimeout(() => {
+    if (!videoCallRingDismissed && !isExpanded.value && videoCall.phase.value === "idle") {
+      videoCall.ring();
+    }
+  }, 5000);
+}
+
+const expandButtonTitle = computed(() => {
+  if (isExpanded.value) return "退出全屏";
+  if (isDevVariant) return "全屏展开 · 卡牌阶段（测试）";
+  return "进入卡牌阶段";
+});
 
 const {
   cardSession,
@@ -489,9 +569,9 @@ const { cardPhaseUnlocked, markUnlocked, evaluate: evaluateCardTrigger } = useCa
   () => sessionId.value,
 );
 
-const showExpandButton = computed(() => cardPhaseUnlocked.value);
+/** 开发版：随时可手动全屏；正式版：满意度触发后才显示展开入口 */
+const showExpandButton = computed(() => isDevVariant || cardPhaseUnlocked.value);
 
-/** 正式版：满意度触发后才显示展开入口 */
 const cardModeThresholdHint = computed(() => {
   if (cardPhaseUnlocked.value || isExpanded.value || cardPreludePlaying.value) return "";
   return evaluateCardTrigger(session.value).hint;
@@ -534,7 +614,6 @@ async function tryEnterCardMode(options?: { autoExpand?: boolean }) {
 const cachedSession = sessionStorage.getItem("currentSession");
 if (cachedSession) {
   session.value = JSON.parse(cachedSession) as SessionState;
-  hrPersonalityMeta.value = syncHrPersonalityMeta(session.value);
 }
 const opening = sessionStorage.getItem("hrOpening");
 if (opening) {
@@ -598,9 +677,12 @@ onMounted(async () => {
   await tryEnterCardMode();
   if (isExpanded.value) await enterCardPhase();
   if (isExpanded.value) await playBgm(cardBgm.value, cardBgmUrl);
+  scheduleHrVideoRing();
 });
 
 onUnmounted(() => {
+  if (videoCallRingTimer) clearTimeout(videoCallRingTimer);
+  videoCall.hangUp();
   stopBgm(normalBgm.value);
   stopBgm(cardBgm.value);
   clearFade(normalBgm.value);
@@ -637,6 +719,13 @@ async function runTurn(payload: {
         latestPlayerSpeech.value.bubbleEntrance ?? "slide",
       );
     }
+    if (data.result.fantasy_event_title && data.result.fantasy_event_announce) {
+      pushMessage({
+        role: "system",
+        text: `🪄 ${data.result.fantasy_event_title}：${data.result.fantasy_event_announce}`,
+        type: "system",
+      });
+    }
     pushMessage({
       role: "hr",
       text: data.result.hr_reply,
@@ -646,7 +735,6 @@ async function runTurn(payload: {
       pushMessage({ role: "system", text: `💡 ${data.flow.reason}`, type: "system" });
     }
     session.value = data.session;
-    hrPersonalityMeta.value = syncHrPersonalityMeta(data.session);
     sessionStorage.setItem("currentSession", JSON.stringify(data.session));
 
     const gameEnding =
@@ -1035,10 +1123,8 @@ const securityText = computed(() => {
 
 .boss-header { background: #00c2a2; padding: 8px 16px 12px; color: #fff; }
 .boss-header-top { display: flex; align-items: center; justify-content: space-between; }
-.boss-header-center { flex: 1; min-width: 0; text-align: center; }
 .boss-back { font-size: 18px; width: 28px; cursor: pointer; }
-.boss-header-name { font-size: 16px; font-weight: 600; line-height: 1.25; }
-.boss-header-tagline { margin-top: 2px; font-size: 11px; line-height: 1.3; opacity: 0.88; font-weight: 500; }
+.boss-header-name { font-size: 16px; font-weight: 600; text-align: center; flex: 1; }
 
 .boss-expand-btn {
   width: 28px;
@@ -1077,6 +1163,31 @@ const securityText = computed(() => {
 
 .boss-bgm-btn:hover {
   background: rgba(255, 255, 255, 0.26);
+}
+
+.boss-video-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-right: 6px;
+  color: #fff;
+  font-size: 14px;
+}
+
+.boss-video-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.26);
+}
+
+.boss-video-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .bgm-panel {
@@ -1290,8 +1401,7 @@ const securityText = computed(() => {
 .boss-msg.me { align-self: flex-end; flex-direction: row-reverse; }
 .boss-msg.hr { align-self: flex-start; }
 .boss-msg-avatar { width: 36px; height: 36px; border-radius: 6px; object-fit: cover; flex-shrink: 0; background: #f0f0f0; }
-.boss-msg-content { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.boss-msg-role { font-size: 11px; color: #888; line-height: 1.2; padding: 0 2px; }
+.boss-msg-content { display: flex; flex-direction: column; gap: 0; min-width: 0; }
 .boss-msg.me .boss-msg-content { align-items: flex-end; }
 .boss-msg-bubble { padding: 10px 14px; border-radius: 8px; font-size: 14px; line-height: 1.5; word-break: break-word; overflow-wrap: anywhere; }
 .boss-msg.hr .boss-msg-bubble { background: #fff; border-top-left-radius: 2px; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04); }

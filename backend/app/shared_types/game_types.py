@@ -91,6 +91,9 @@ class SessionState(BaseModel):
     equity_ratio: float = 0.0
     law_citation_count: int = 0
     misjudge_count: int = 0
+    fantasy_event_id: str | None = None
+    fantasy_event_title: str | None = None
+    fantasy_event_announce: str | None = None
     identified_traps: list[str] = Field(default_factory=list)
     strategy_history: list[str] = Field(default_factory=list)
     conversation_history: list[ConversationMessage] = Field(default_factory=list)
@@ -112,6 +115,9 @@ class TurnResult(BaseModel):
     trap_id: str | None = None
     hr_bubble_entrance: Optional[Literal["fade", "slam", "slide"]] = None
     player_bubble_entrance: Optional[Literal["fade", "slam", "slide"]] = None
+    fantasy_event_id: str | None = None
+    fantasy_event_title: str | None = None
+    fantasy_event_announce: str | None = None
 
 
 class FlowDecision(BaseModel):

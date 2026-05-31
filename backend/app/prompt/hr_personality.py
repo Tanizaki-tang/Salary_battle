@@ -221,7 +221,7 @@ def build_personality_opening(
     if opening:
         opening = opening.replace("月薪X", f"月薪{offer_token}").replace("薪资这块是X", f"薪资这块是{offer_token}")
         opening = opening.replace("X——", f"{offer_token}——").replace("X，", f"{offer_token}，").replace("X", offer_token)
-        opening = opening.strip().strip("“”\"'「」")
+        opening = opening.strip().strip("“”\"'")
     elif scene_opening_line.strip():
         opening = scene_opening_line.strip()
         opening = opening.replace("{salary_offer}", offer_token).replace("{user_name}", user_name)

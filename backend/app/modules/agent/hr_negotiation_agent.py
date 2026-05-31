@@ -10,6 +10,7 @@ from langchain_core.messages import HumanMessage, SystemMessage  # pyright: igno
 from langchain_openai import ChatOpenAI  # pyright: ignore[reportMissingImports]
 from openai import NotFoundError  # pyright: ignore[reportMissingImports]
 
+from app.modules.fantasy_events.fantasy_events import FANTASY_WORLD_PROMPT, FantasyEvent, build_fantasy_event_prompt
 from app.prompt.character_prompt import build_system_prompt
 from app.prompt.dialogue_style import clamp_hr_reply
 from app.service.history_service import build_agent_turn_payload
@@ -119,6 +120,8 @@ class HrNegotiationAgent:
         system_prompt = self._load_scene_prompt(
             session_state.scene_id,
             session_state.hr_personality_id,
+            fantasy_prompt=FANTASY_WORLD_PROMPT,
+            event_prompt=self._event_prompt_from_state(session_state),
         )
         t1 = time.perf_counter()
         user_payload = build_agent_turn_payload(
@@ -194,6 +197,9 @@ class HrNegotiationAgent:
         self,
         scene_id: str,
         personality_id: str | None = None,
+        *,
+        fantasy_prompt: str | None = None,
+        event_prompt: str | None = None,
     ) -> str:
         base_file = PROMPT_DIR / DEFAULT_PROMPT_FILE
         if base_file.exists():
@@ -204,8 +210,6 @@ class HrNegotiationAgent:
                 "只返回 JSON，不要额外文本。"
                 "必须先判断玩家意图分类，然后生成HR回复，并给出状态增量。"
                 "hr_reply 为 Boss 直聘式短聊：1~2句、≤80字，口语自然，禁止长段。"
-                "若近期 HR 已明确录用意愿（offer/决定录用/欢迎加入等），禁止输出未录用、谈崩、收回 offer 等矛盾话术；"
-                "should_end=true 表示进入结算时，reason 不得与录用意愿矛盾。"
                 "数值约束: delta_hr_patience[-15,10], delta_info_exposure[-12,18], delta_trap_count[0,1], "
                 "delta_salary_offer[0,5000], delta_equity_ratio[0,0.2], delta_law_citation_count[0,1], delta_misjudge_count[0,1]。"
             )
@@ -213,7 +217,22 @@ class HrNegotiationAgent:
             base_prompt=base_prompt,
             scene_id=scene_id,
             personality_id=personality_id,
+            fantasy_prompt=fantasy_prompt,
+            event_prompt=event_prompt,
         )
+
+    @staticmethod
+    def _event_prompt_from_state(session_state: SessionState) -> str | None:
+        if not session_state.fantasy_event_id or not session_state.fantasy_event_title:
+            return None
+        announce = session_state.fantasy_event_announce or ""
+        ev = FantasyEvent(
+            event_id=session_state.fantasy_event_id,
+            title=session_state.fantasy_event_title,
+            announce=announce,
+            hr_directive="结合事件氛围推进谈薪，不要跑题。",
+        )
+        return build_fantasy_event_prompt(ev)
 
     def _get_llm(self) -> ChatOpenAI:
         if self._llm is None:

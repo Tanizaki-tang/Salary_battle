@@ -76,12 +76,12 @@ npm run dev
 
 | 变体 | 命令 | 开始页能力 |
 |------|------|------------|
-| **正式版** `prod`（默认） | `npm run dev` / `npm run build` | 仅选择职位；HR 性格随机，对话界面标注 |
-| **开发版** `dev` | `npm run build:dev-ui` | 昵称、场景、HR 性格可选（内部测试） |
+| **开发版** `dev` | `npm run dev` | 昵称、角色、场景、HR 性格选择 |
+| **正式版** `prod` | `npm run build` | 仅昵称 + 职位；HR 性格服务端随机 |
 
 ```env
-VITE_APP_VARIANT=prod   # 正式版（默认）
-VITE_APP_VARIANT=dev    # 内部测试 UI
+VITE_APP_VARIANT=dev   # 本地开发
+VITE_APP_VARIANT=prod  # 生产构建
 ```
 
 本地打包开发版 UI：`npm run build:dev-ui`。

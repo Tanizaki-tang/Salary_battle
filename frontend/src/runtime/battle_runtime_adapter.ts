@@ -29,6 +29,9 @@ export type TurnResult = {
   is_trap_hit: boolean;
   is_game_over: boolean;
   next_round: number;
+  fantasy_event_id?: string | null;
+  fantasy_event_title?: string | null;
+  fantasy_event_announce?: string | null;
   /** 横屏 HR 气泡出场：fade | slam | slide */
   hr_bubble_entrance?: string;
   /** 横屏玩家气泡出场：fade | slam | slide */
