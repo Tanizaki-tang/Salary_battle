@@ -12,9 +12,12 @@ export function resolveApiBaseUrl() {
   if (envBase) {
     try {
       const url = new URL(envBase);
-      if (isLocalHost(url.hostname) && !currentIsLocal) return "";
-    } catch {}
-    return envBase;
+      if (!isLocalHost(url.hostname) || currentIsLocal) {
+        return envBase;
+      }
+    } catch {
+      return envBase;
+    }
   }
 
   if (!currentIsLocal && currentHost.endsWith("netlify.app")) {
