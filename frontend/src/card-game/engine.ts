@@ -16,46 +16,54 @@ const SALARY_MAX = 22;
 type BaseDelta = { satisfaction: number; salary_k: number; work_hours: number; security: number };
 
 const BASE_DELTAS: Record<CardStrategyId, BaseDelta> = {
-  strong_push: { satisfaction: -2.5, salary_k: 2.75, work_hours: 0.5, security: 0 },
-  probe: { satisfaction: -1, salary_k: 1, work_hours: 2, security: 1 },
-  concede: { satisfaction: 1.5, salary_k: 1, work_hours: -0.5, security: 0.5 },
-  counter_pressure: { satisfaction: -1.5, salary_k: 2.25, work_hours: 1.5, security: 0.5 },
-  expose_rhetoric: { satisfaction: -1.5, salary_k: 1.5, work_hours: 1.5, security: 1.5 },
-  off_topic: { satisfaction: 2, salary_k: 0, work_hours: 0, security: 0 },
+  strong_push: { satisfaction: -3.0, salary_k: 2.5, work_hours: 0.5, security: 0.3 },
+  probe: { satisfaction: -1.0, salary_k: 0.5, work_hours: 1.5, security: 1.0 },
+  concede: { satisfaction: 1.0, salary_k: 0.5, work_hours: -1.0, security: 0.5 },
+  counter_pressure: { satisfaction: -2.0, salary_k: 2.0, work_hours: 1.0, security: 0.5 },
+  expose_rhetoric: { satisfaction: -2.0, salary_k: 1.0, work_hours: 1.0, security: 1.5 },
+  off_topic: { satisfaction: 1.5, salary_k: 0.0, work_hours: 0.3, security: 0.2 },
 };
 
 const PERSONALITY_MODS: Record<string, Partial<Record<CardStrategyId, [number, number, number, number]>>> = {
   hr_smiling_tiger: {
-    strong_push: [1.1, 0.9, 1, 1],
-    probe: [1.2, 1, 1, 1],
-    concede: [1, 0.8, 1, 1],
-    counter_pressure: [1.2, 1, 1, 1],
-    expose_rhetoric: [1.5, 1.2, 1, 1.3],
-    off_topic: [0.8, 1, 1, 1],
+    strong_push: [1.1, 0.9, 1.0, 1.0],
+    probe: [1.2, 1.0, 1.0, 1.0],
+    concede: [1.0, 0.8, 1.0, 1.0],
+    counter_pressure: [1.2, 1.0, 1.0, 1.0],
+    expose_rhetoric: [1.5, 1.2, 1.0, 1.3],
+    off_topic: [0.8, 1.0, 1.0, 1.0],
   },
   hr_honest: {
-    strong_push: [0.8, 1.3, 1, 1],
-    probe: [1, 1, 1.3, 1.5],
-    concede: [1.3, 1.2, 1, 1],
-    counter_pressure: [0.8, 1.2, 1, 1],
-    expose_rhetoric: [0.7, 1, 1.3, 1.3],
-    off_topic: [1.3, 1, 1, 1],
+    strong_push: [0.8, 1.3, 1.0, 1.0],
+    probe: [1.0, 1.0, 1.3, 1.5],
+    concede: [1.3, 1.2, 1.0, 1.0],
+    counter_pressure: [0.8, 1.2, 1.0, 1.0],
+    expose_rhetoric: [0.7, 1.0, 1.3, 1.3],
+    off_topic: [1.3, 1.0, 1.0, 1.0],
   },
   hr_aggressive: {
-    strong_push: [1.5, 0.7, 1, 1],
-    probe: [1.3, 1, 0.7, 1],
-    counter_pressure: [1.5, 1, 1, 1],
-    expose_rhetoric: [1.3, 1, 1, 1],
-    off_topic: [0.5, 1, 1, 1],
+    strong_push: [1.5, 0.7, 1.0, 1.0],
+    probe: [1.3, 1.0, 0.7, 1.0],
+    concede: [1.0, 1.0, 1.0, 1.0],
+    counter_pressure: [1.5, 1.0, 1.0, 1.0],
+    expose_rhetoric: [1.3, 1.0, 1.0, 1.0],
+    off_topic: [0.5, 1.0, 1.0, 1.0],
   },
-  hr_robot: { off_topic: [0.3, 1, 1, 1] },
+  hr_robot: {
+    strong_push: [1.0, 1.0, 1.0, 1.0],
+    probe: [1.0, 1.0, 1.0, 1.0],
+    concede: [1.0, 1.0, 1.0, 1.0],
+    counter_pressure: [1.0, 1.0, 1.0, 1.0],
+    expose_rhetoric: [1.0, 1.0, 1.0, 1.0],
+    off_topic: [0.3, 1.0, 1.0, 1.0],
+  },
   hr_newbie: {
-    strong_push: [1.3, 1.5, 1, 1],
-    probe: [1, 1, 1.5, 1.5],
-    concede: [1.5, 1.2, 1, 1],
-    counter_pressure: [1.3, 1.4, 1, 1],
-    expose_rhetoric: [1, 1, 1.5, 1.5],
-    off_topic: [1.5, 1, 1, 1],
+    strong_push: [1.3, 1.5, 1.0, 1.0],
+    probe: [1.0, 1.0, 1.5, 1.5],
+    concede: [1.5, 1.2, 1.0, 1.0],
+    counter_pressure: [1.3, 1.4, 1.0, 1.0],
+    expose_rhetoric: [1.0, 1.0, 1.5, 1.5],
+    off_topic: [1.5, 1.0, 1.0, 1.0],
   },
 };
 
@@ -141,7 +149,7 @@ export function computeDelta(
   const rawSec = base.security * rm * secM * repeat;
   return {
     satisfaction: roundFavorPlayer(rawSat, false),
-    salary_k: rawSal ? Math.round(rawSal * 10) / 10 : 0,
+    salary_k: rawSal ? Math.ceil(rawSal * 10 - 1e-9) / 10 : 0,
     work_hours: roundFavorPlayer(rawWh, true),
     security: roundFavorPlayer(rawSec, true),
   };

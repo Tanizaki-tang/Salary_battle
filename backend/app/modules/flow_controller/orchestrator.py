@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Iterator
+from typing import Any, Literal
 
 from app.modules.agent.hr_negotiation_agent import HrNegotiationAgent
-from app.modules.fantasy_events.fantasy_events import pick_fantasy_event
 from app.modules.flow_controller.persistence_adapter import save_session_result
 from app.modules.flow_controller.phase_policy import decide_next_phase, resolve_effective_max_round
 from app.modules.flow_controller.session_state_machine import advance_game_flow
@@ -33,22 +34,10 @@ class GameFlowOrchestrator:
     ) -> tuple[SessionState, TurnResult, FlowDecision]:
         started = time.perf_counter()
         player_text = text_payload.player_text or text_payload.strategy or ""
-        event = pick_fantasy_event(session_state.session_id, round_index=session_state.round_index, salt=player_text[:32])
-        if event is not None:
-            session_state.fantasy_event_id = event.event_id
-            session_state.fantasy_event_title = event.title
-            session_state.fantasy_event_announce = event.announce
-            session_state.conversation_history.append(
-                ConversationMessage(role="system", content=f"【事件】{event.title}：{event.announce}", round_index=session_state.round_index)
-            )
         t0 = time.perf_counter()
         decision = self.hr_agent.decide_text_turn(session_state, player_text)
         t1 = time.perf_counter()
         turn_result = self._decision_to_turn_result(session_state, decision)
-        if event is not None:
-            turn_result.fantasy_event_id = event.event_id
-            turn_result.fantasy_event_title = event.title
-            turn_result.fantasy_event_announce = event.announce
         next_state = advance_game_flow(session_state, turn_result)
         t2 = time.perf_counter()
         self._append_round_history(next_state, decision.player_text_used, turn_result.hr_reply, turn_result.next_round)
@@ -75,9 +64,60 @@ class GameFlowOrchestrator:
             )
         return next_state, turn_result, flow
 
+    def run_text_turn_stream(
+        self, session_state: SessionState, text_payload: TextTurnPayload
+    ) -> Iterator[tuple[Literal["token", "done"], Any]]:
+        started = time.perf_counter()
+        player_text = text_payload.player_text or text_payload.strategy or ""
+        text = (player_text or "").strip() or "我希望了解这份 offer 的组成和边界。"
+        reply_parts: list[str] = []
+
+        for chunk in self.hr_agent.iter_hr_reply_chunks(session_state=session_state, player_text=text):
+            reply_parts.append(chunk)
+            yield "token", chunk
+
+        decision = self.hr_agent.decide_state_for_reply(
+            session_state=session_state,
+            player_text=text,
+            hr_reply_raw="".join(reply_parts),
+            traces=[],
+        )
+        turn_result = self._decision_to_turn_result(session_state, decision)
+        next_state = advance_game_flow(session_state, turn_result)
+        self._append_round_history(next_state, decision.player_text_used, turn_result.hr_reply, turn_result.next_round)
+        flow = decide_next_phase(next_state, decision.next_phase_hint)
+
+        logger.info(
+            "HR_REPLY_STREAM session_id=%s round=%s next_round=%s next_phase=%s reply_preview=%s",
+            session_state.session_id,
+            session_state.round_index,
+            turn_result.next_round,
+            flow.next_phase,
+            (turn_result.hr_reply or "")[:48],
+        )
+        if llm_latency_enabled():
+            logger.info(
+                "LATENCY_TEXT_TURN_STREAM session_id=%s round=%s total_ms=%.1f",
+                session_state.session_id,
+                session_state.round_index,
+                (time.perf_counter() - started) * 1000,
+            )
+
+        yield "done", {
+            "result": turn_result.model_dump(),
+            "session": next_state.model_dump(),
+            "flow": flow.model_dump(),
+            "session_state": next_state,
+        }
+
     def settle_and_persist(self, session_state: SessionState) -> tuple[SettleResult, PersistResult]:
         settle_result = settle_session(session_state)
-        persist_result = save_session_result(session_state.user_id, settle_result, session_state.session_id)
+        persist_result = save_session_result(
+            session_state.user_id,
+            settle_result,
+            session_state.session_id,
+            user_name=session_state.user_name,
+        )
         return settle_result, persist_result
 
     @staticmethod

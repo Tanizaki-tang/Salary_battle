@@ -16,6 +16,8 @@ import CardGamePage from "./pages/CardGamePage.vue";
 
 import CardGameResultPage from "./pages/CardGameResultPage.vue";
 
+import LeaderboardPage from "./pages/LeaderboardPage.vue";
+
 
 
 const router = createRouter({
@@ -25,6 +27,8 @@ const router = createRouter({
   routes: [
 
     { path: "/", component: StartPage },
+
+    { path: "/leaderboard", component: LeaderboardPage },
 
     { path: "/battle/:sessionId", component: BattlePage },
 

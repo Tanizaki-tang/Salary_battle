@@ -112,16 +112,10 @@
         <div class="boss-header">
           <div class="boss-header-top">
             <div class="boss-back" @click="$router.push('/')">‹</div>
-            <div class="boss-header-name">{{ waitingHr ? "对方正在输入中..." : hrHeaderName }}</div>
-            <button
-              type="button"
-              class="boss-video-btn"
-              title="HR 视频来电"
-              :disabled="videoCall.isActive.value"
-              @click="onRequestVideoCall"
-            >
-              📹
-            </button>
+            <div class="boss-header-center">
+              <div class="boss-header-name">{{ waitingHr ? "对方正在输入中..." : hrHeaderName }}</div>
+              <div v-if="!waitingHr && hrPersonalityTagline" class="boss-header-tagline">{{ hrPersonalityTagline }}</div>
+            </div>
             <button type="button" class="boss-bgm-btn" title="BGM 音量" @click="showBgmPanel = true">🔊</button>
             <button
               v-if="showExpandButton || isExpanded"
@@ -159,9 +153,21 @@
         </p>
 
         <div class="boss-hud-row">
-          <div>💰 当前薪资 <span>{{ salaryHudText }}</span></div>
-          <div>⏱️ 当前工时 <span>{{ workHoursText }}</span></div>
-          <div>🛡️ 当前保障 <span>{{ securityText }}</span></div>
+          <div class="boss-hud-item" title="薪资越多越好，是谈判的核心目标">
+            <span class="boss-hud-icon">💰</span>
+            <span class="boss-hud-label">当前薪资</span>
+            <span class="boss-hud-val">{{ salaryHudText }}</span>
+          </div>
+          <div class="boss-hud-item" title="日工时、周工时、加班费写入合同的程度，越高代表条款越有利">
+            <span class="boss-hud-icon">⏱️</span>
+            <span class="boss-hud-label">当前工时</span>
+            <span class="boss-hud-val">{{ workHoursText }}</span>
+          </div>
+          <div class="boss-hud-item" title="五险一金基数+比例+合同明确度，越高代表保障越到位">
+            <span class="boss-hud-icon">🛡️</span>
+            <span class="boss-hud-label">当前保障</span>
+            <span class="boss-hud-val">{{ securityText }}</span>
+          </div>
         </div>
 
         <div ref="chatAreaRef" class="boss-chat-area">
@@ -175,6 +181,7 @@
                 :alt="m.role === 'hr' ? 'HR' : '我'"
               />
               <div class="boss-msg-content">
+                <div v-if="m.role === 'hr'" class="boss-msg-role">{{ hrRoleLabel }}</div>
                 <div class="boss-msg-bubble">{{ m.text }}</div>
               </div>
             </div>
@@ -182,6 +189,7 @@
           <div v-if="waitingHr" class="boss-msg hr">
             <img class="boss-msg-avatar" :src="bossAvatarUrl" alt="HR" />
             <div class="boss-msg-content">
+              <div class="boss-msg-role">{{ hrRoleLabel }}</div>
               <div class="boss-msg-bubble boss-typing-bubble">
                 <span></span><span></span><span></span>
               </div>
@@ -208,33 +216,6 @@
       </div>
     </div>
   </section>
-
-  <HrIncomingCall
-    :visible="videoCall.phase.value === 'ringing'"
-    :hr-name="hrVideoMeta.name"
-    :hr-tagline="hrVideoMeta.tagline"
-    :avatar-url="bossAvatarUrl"
-    @accept="onAcceptVideoCall"
-    @decline="onDeclineVideoCall"
-  />
-
-  <HrVideoCallOverlay
-    :visible="videoCall.isActive.value || videoCall.phase.value === 'error'"
-    :hr-name="videoCall.hrDisplayName.value"
-    :avatar-url="bossAvatarUrl"
-    :hr-subtitle="videoCall.hrSubtitle.value"
-    :hr-speaking="videoCall.hrSpeaking.value"
-    :status-text="videoCall.statusText.value"
-    :error-message="videoCall.errorMessage.value"
-    :muted="videoCall.muted.value"
-    :camera-off="videoCall.cameraOff.value"
-    :api-key-configured="videoCall.config.value?.api_key_configured"
-    @hangup="videoCall.hangUp()"
-    @toggle-mute="videoCall.toggleMute()"
-    @toggle-camera="videoCall.toggleCamera()"
-    @interrupt="videoCall.interruptHr()"
-    @preview-ready="videoCall.attachPreview"
-  />
 </template>
 
 <script setup lang="ts">
@@ -243,18 +224,15 @@ import { useRoute, useRouter } from "vue-router";
 import { bossAvatarUrl, playerAvatarUrl } from "../assets/avatars";
 import BattleCardLandscape from "../components/battle/BattleCardLandscape.vue";
 import BattleTurnCountdown from "../components/battle/BattleTurnCountdown.vue";
-import HrIncomingCall from "../components/video-call/HrIncomingCall.vue";
-import HrVideoCallOverlay from "../components/video-call/HrVideoCallOverlay.vue";
 import type { BubbleEntrance } from "../types/bubbleEntrance";
 import { normalizeBubbleEntrance } from "../types/bubbleEntrance";
-import { isDevVariant } from "../config/app_variant";
+import { syncHrPersonalityMeta, type HrPersonalityMeta } from "../constants/hr_personalities";
 import { useBattleCardGame } from "../composables/useBattleCardGame";
 import { useCardModeTrigger } from "../composables/useCardModeTrigger";
 import { playCardModePrelude } from "../composables/useCardModePrelude";
 import { useBattleMood } from "../composables/useBattleMood";
 import { useBattleTurnCountdown } from "../composables/useBattleTurnCountdown";
 import { useBattleViewport } from "../composables/useBattleViewport";
-import { useHrVideoCall } from "../composables/useHrVideoCall";
 import { runtimeAdapter } from "../runtime";
 import type { SessionState } from "../runtime/battle_runtime_adapter";
 
@@ -279,9 +257,35 @@ type BattleMessage = {
 };
 
 let messageSeq = 0;
+let streamingHrMessageId: number | null = null;
 
 function pushMessage(msg: Omit<BattleMessage, "id">) {
   messages.value.push({ id: ++messageSeq, ...msg });
+}
+
+function appendStreamingHrToken(chunk: string) {
+  if (!chunk) return;
+  if (streamingHrMessageId === null) {
+    pushMessage({ role: "hr", text: chunk, bubbleEntrance: "fade" });
+    streamingHrMessageId = messageSeq;
+    waitingHr.value = false;
+    return;
+  }
+  const msg = messages.value.find((item) => item.id === streamingHrMessageId);
+  if (msg) msg.text += chunk;
+}
+
+function finalizeStreamingHrMessage(finalText: string, bubbleEntrance?: BubbleEntrance) {
+  if (streamingHrMessageId === null) {
+    pushMessage({ role: "hr", text: finalText, bubbleEntrance: bubbleEntrance ?? "fade" });
+  } else {
+    const msg = messages.value.find((item) => item.id === streamingHrMessageId);
+    if (msg) {
+      msg.text = finalText;
+      if (bubbleEntrance) msg.bubbleEntrance = bubbleEntrance;
+    }
+  }
+  streamingHrMessageId = null;
 }
 
 const messages = ref<BattleMessage[]>([]);
@@ -468,74 +472,28 @@ function unlockBgm() {
   window.removeEventListener("keydown", unlockBgm);
 }
 
+const hrPersonalityMeta = ref<HrPersonalityMeta | null>(null);
+
 const playerDisplayName = computed(() => {
   const name = (session.value?.user_name || "").trim();
-  return name ? `${name} · 候选人` : "候选人";
+  return name && name !== "候选人" ? `${name} · 候选人` : "候选人";
 });
 
 const hrRoleLabel = computed(() => {
-  const metaRaw = sessionStorage.getItem("hrPersonalityMeta");
-  if (metaRaw) {
-    try {
-      const meta = JSON.parse(metaRaw) as { emoji?: string; name?: string };
-      return `${meta.emoji || "😊"} ${meta.name || "张敏"} · HR`;
-    } catch {
-      /* ignore */
-    }
-  }
-  return "张敏 · HR";
+  const meta = hrPersonalityMeta.value;
+  if (meta?.name) return `${meta.emoji || "😊"} ${meta.name} · HR`;
+  return "HR";
 });
 
-const hrVideoMeta = computed(() => {
-  const metaRaw = sessionStorage.getItem("hrPersonalityMeta");
-  if (metaRaw) {
-    try {
-      const meta = JSON.parse(metaRaw) as { name?: string; tagline?: string };
-      return {
-        name: meta.name || "HR",
-        tagline: meta.tagline || "薪资谈判 · 视频通话",
-      };
-    } catch {
-      /* ignore */
-    }
-  }
-  return { name: "张敏", tagline: "HR负责人 · 灵创科技" };
+const hrHeaderName = computed(() => {
+  const meta = hrPersonalityMeta.value;
+  if (meta?.name) return `${meta.name} · HR负责人`;
+  return "HR负责人";
 });
 
-const hrHeaderName = computed(() => `${hrVideoMeta.value.name} · HR负责人`);
+const hrPersonalityTagline = computed(() => hrPersonalityMeta.value?.tagline || "");
 
-const videoCall = useHrVideoCall(() => sessionId.value);
-let videoCallRingTimer: ReturnType<typeof setTimeout> | null = null;
-let videoCallRingDismissed = false;
-
-function onRequestVideoCall() {
-  videoCall.ring();
-}
-
-function onAcceptVideoCall() {
-  videoCallRingDismissed = true;
-  void videoCall.acceptCall();
-}
-
-function onDeclineVideoCall() {
-  videoCallRingDismissed = true;
-  videoCall.dismissRing();
-}
-
-function scheduleHrVideoRing() {
-  if (videoCallRingDismissed || isExpanded.value) return;
-  videoCallRingTimer = window.setTimeout(() => {
-    if (!videoCallRingDismissed && !isExpanded.value && videoCall.phase.value === "idle") {
-      videoCall.ring();
-    }
-  }, 5000);
-}
-
-const expandButtonTitle = computed(() => {
-  if (isExpanded.value) return "退出全屏";
-  if (isDevVariant) return "全屏展开 · 卡牌阶段（测试）";
-  return "进入卡牌阶段";
-});
+const expandButtonTitle = computed(() => (isExpanded.value ? "退出全屏" : "进入卡牌阶段"));
 
 const {
   cardSession,
@@ -569,9 +527,9 @@ const { cardPhaseUnlocked, markUnlocked, evaluate: evaluateCardTrigger } = useCa
   () => sessionId.value,
 );
 
-/** 开发版：随时可手动全屏；正式版：满意度触发后才显示展开入口 */
-const showExpandButton = computed(() => isDevVariant || cardPhaseUnlocked.value);
+const showExpandButton = computed(() => cardPhaseUnlocked.value);
 
+/** 正式版：满意度触发后才显示展开入口 */
 const cardModeThresholdHint = computed(() => {
   if (cardPhaseUnlocked.value || isExpanded.value || cardPreludePlaying.value) return "";
   return evaluateCardTrigger(session.value).hint;
@@ -614,6 +572,7 @@ async function tryEnterCardMode(options?: { autoExpand?: boolean }) {
 const cachedSession = sessionStorage.getItem("currentSession");
 if (cachedSession) {
   session.value = JSON.parse(cachedSession) as SessionState;
+  hrPersonalityMeta.value = syncHrPersonalityMeta(session.value);
 }
 const opening = sessionStorage.getItem("hrOpening");
 if (opening) {
@@ -677,12 +636,9 @@ onMounted(async () => {
   await tryEnterCardMode();
   if (isExpanded.value) await enterCardPhase();
   if (isExpanded.value) await playBgm(cardBgm.value, cardBgmUrl);
-  scheduleHrVideoRing();
 });
 
 onUnmounted(() => {
-  if (videoCallRingTimer) clearTimeout(videoCallRingTimer);
-  videoCall.hangUp();
   stopBgm(normalBgm.value);
   stopBgm(cardBgm.value);
   clearFade(normalBgm.value);
@@ -709,32 +665,35 @@ async function runTurn(payload: {
   pauseTurnCountdown();
   error.value = "";
   try {
-    const data = await runtimeAdapter.textTurn(sessionId.value, {
-      strategy: payload.strategy as "strong_push" | "probe" | "concede" | "counter_pressure" | undefined,
-      player_text: payload.player_text,
-    });
+    streamingHrMessageId = null;
+    const data = await runtimeAdapter.textTurn(
+      sessionId.value,
+      {
+        strategy: payload.strategy as "strong_push" | "probe" | "concede" | "counter_pressure" | undefined,
+        player_text: payload.player_text,
+      },
+      {
+        onToken(chunk) {
+          appendStreamingHrToken(chunk);
+          void scrollChatToBottom();
+        },
+      },
+    );
     if (data.result.player_bubble_entrance && latestPlayerSpeech.value) {
       latestPlayerSpeech.value.bubbleEntrance = normalizeBubbleEntrance(
         data.result.player_bubble_entrance,
         latestPlayerSpeech.value.bubbleEntrance ?? "slide",
       );
     }
-    if (data.result.fantasy_event_title && data.result.fantasy_event_announce) {
-      pushMessage({
-        role: "system",
-        text: `🪄 ${data.result.fantasy_event_title}：${data.result.fantasy_event_announce}`,
-        type: "system",
-      });
-    }
-    pushMessage({
-      role: "hr",
-      text: data.result.hr_reply,
-      bubbleEntrance: normalizeBubbleEntrance(data.result.hr_bubble_entrance, "fade"),
-    });
+    finalizeStreamingHrMessage(
+      data.result.hr_reply,
+      normalizeBubbleEntrance(data.result.hr_bubble_entrance, "fade"),
+    );
     if (data.flow?.reason) {
       pushMessage({ role: "system", text: `💡 ${data.flow.reason}`, type: "system" });
     }
     session.value = data.session;
+    hrPersonalityMeta.value = syncHrPersonalityMeta(data.session);
     sessionStorage.setItem("currentSession", JSON.stringify(data.session));
 
     const gameEnding =
@@ -748,6 +707,7 @@ async function runTurn(payload: {
       router.push(`/result/${sessionId.value}`);
     }
   } catch (e) {
+    streamingHrMessageId = null;
     error.value = `回合请求失败：${String(e)}`;
   } finally {
     waitingHr.value = false;
@@ -771,7 +731,7 @@ const salaryText = computed(() => {
 const salaryHudText = computed(() => {
   const k = cardSession.value?.stats?.salary_k;
   if (k == null) return salaryText.value;
-  return `${Math.round(k)}K`;
+  return `${k.toFixed(1)}K`;
 });
 
 const workHoursText = computed(() => {
@@ -1123,8 +1083,10 @@ const securityText = computed(() => {
 
 .boss-header { background: #00c2a2; padding: 8px 16px 12px; color: #fff; }
 .boss-header-top { display: flex; align-items: center; justify-content: space-between; }
+.boss-header-center { flex: 1; min-width: 0; text-align: center; }
 .boss-back { font-size: 18px; width: 28px; cursor: pointer; }
-.boss-header-name { font-size: 16px; font-weight: 600; text-align: center; flex: 1; }
+.boss-header-name { font-size: 16px; font-weight: 600; line-height: 1.25; }
+.boss-header-tagline { margin-top: 2px; font-size: 11px; line-height: 1.3; opacity: 0.88; font-weight: 500; }
 
 .boss-expand-btn {
   width: 28px;
@@ -1163,31 +1125,6 @@ const securityText = computed(() => {
 
 .boss-bgm-btn:hover {
   background: rgba(255, 255, 255, 0.26);
-}
-
-.boss-video-btn {
-  width: 28px;
-  height: 28px;
-  border: none;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.12);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  margin-right: 6px;
-  color: #fff;
-  font-size: 14px;
-}
-
-.boss-video-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.26);
-}
-
-.boss-video-btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
 }
 
 .bgm-panel {
@@ -1373,16 +1310,69 @@ const securityText = computed(() => {
 .boss-hud-row {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  padding: 6px 10px;
-  background: #fff;
-  border-bottom: 1px solid #f0f0f0;
-  gap: 8px;
-  font-size: 10px;
-  color: #999;
+  padding: 10px 8px;
+  background: linear-gradient(135deg, #fafbfc 0%, #f0f4f8 100%);
+  border-bottom: 1px solid #e0e6ed;
+  gap: 6px;
 }
 
-.boss-hud-row > div { text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.boss-hud-row span { color: #333; font-weight: 600; }
+.boss-hud-item {
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: #fff;
+  border-radius: 10px;
+  padding: 8px 4px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  cursor: help;
+  transition: box-shadow 0.18s ease, transform 0.18s ease;
+  position: relative;
+}
+
+.boss-hud-item:hover {
+  box-shadow: 0 4px 14px rgba(0, 194, 162, 0.15);
+  transform: translateY(-1px);
+}
+
+.boss-hud-item::after {
+  content: "?";
+  position: absolute;
+  top: 3px;
+  right: 5px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.08);
+  color: #999;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.boss-hud-icon {
+  display: block;
+  font-size: 15px;
+  line-height: 1;
+  margin-bottom: 2px;
+}
+
+.boss-hud-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: #555;
+  margin-bottom: 3px;
+}
+
+.boss-hud-val {
+  display: block;
+  font-size: 15px;
+  font-weight: 800;
+  color: #00c2a2;
+}
 
 .boss-chat-area {
   flex: 1;
@@ -1401,7 +1391,8 @@ const securityText = computed(() => {
 .boss-msg.me { align-self: flex-end; flex-direction: row-reverse; }
 .boss-msg.hr { align-self: flex-start; }
 .boss-msg-avatar { width: 36px; height: 36px; border-radius: 6px; object-fit: cover; flex-shrink: 0; background: #f0f0f0; }
-.boss-msg-content { display: flex; flex-direction: column; gap: 0; min-width: 0; }
+.boss-msg-content { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.boss-msg-role { font-size: 11px; color: #888; line-height: 1.2; padding: 0 2px; }
 .boss-msg.me .boss-msg-content { align-items: flex-end; }
 .boss-msg-bubble { padding: 10px 14px; border-radius: 8px; font-size: 14px; line-height: 1.5; word-break: break-word; overflow-wrap: anywhere; }
 .boss-msg.hr .boss-msg-bubble { background: #fff; border-top-left-radius: 2px; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04); }

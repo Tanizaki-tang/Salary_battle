@@ -8,7 +8,7 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage  # pyright: ignore[reportMissingImports]
 from langchain_openai import ChatOpenAI  # pyright: ignore[reportMissingImports]
-from openai import NotFoundError  # pyright: ignore[reportMissingImports]
+from openai import BadRequestError, NotFoundError  # pyright: ignore[reportMissingImports]
 
 from app.modules.card_game.card_dialogue_constants import ALL_STRATEGIES, OPTION_FALLBACK, STRATEGY_SPECS
 from app.modules.card_game.card_engine import apply_delta, compute_delta, pick_hr_reply, pick_question
@@ -339,7 +339,7 @@ class CardDialogueAgent:
         llm = self._get_llm(max_tokens=max_tokens)
         try:
             response = llm.invoke(messages)
-        except NotFoundError as exc:
+        except (NotFoundError, BadRequestError) as exc:
             if not self._is_model_not_found(exc) or self._active_model == DEFAULT_MODEL:
                 raise
             logger.warning("CARD_LLM_MODEL_FALLBACK to=%s", DEFAULT_MODEL)
@@ -399,4 +399,10 @@ class CardDialogueAgent:
     @staticmethod
     def _is_model_not_found(exc: Exception) -> bool:
         msg = str(exc).lower()
-        return "model_not_found" in msg or "does not exist" in msg
+        return any(kw in msg for kw in [
+            "model_not_found",
+            "does not exist",
+            "model not found",
+            "invalid model",
+            "unknown model",
+        ])

@@ -344,9 +344,9 @@ const playedCard = computed(() => {
 }
 
 .battle-card-played-card {
-  width: calc(96px * var(--battle-scale));
+  width: calc(130px * var(--battle-scale));
   aspect-ratio: 2.6 / 3.6;
-  border-radius: calc(14px * var(--battle-scale));
+  border-radius: calc(18px * var(--battle-scale));
   border: 1px solid rgba(255, 255, 255, 0.18);
   background:
     radial-gradient(120% 110% at 30% 10%, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0) 52%),
@@ -369,7 +369,7 @@ const playedCard = computed(() => {
 }
 
 .battle-card-played-corner {
-  font-size: calc(13px * var(--battle-scale));
+  font-size: calc(15px * var(--battle-scale));
   opacity: 0.9;
 }
 
@@ -384,15 +384,15 @@ const playedCard = computed(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: calc(6px * var(--battle-scale));
+  gap: calc(8px * var(--battle-scale));
 }
 
 .battle-card-played-emoji {
-  font-size: calc(30px * var(--battle-scale));
+  font-size: calc(40px * var(--battle-scale));
 }
 
 .battle-card-played-label {
-  font-size: calc(12px * var(--battle-scale));
+  font-size: calc(15px * var(--battle-scale));
   font-weight: 800;
   color: rgba(255, 255, 255, 0.92);
   text-align: center;
@@ -400,7 +400,7 @@ const playedCard = computed(() => {
 
 .battle-card-deck-zone {
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
   border-radius: calc(16px * var(--battle-scale));
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(255, 255, 255, 0.04);
@@ -437,25 +437,34 @@ const playedCard = computed(() => {
 :deep(.cg-deck) {
   max-width: 100%;
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: visible;
   padding-bottom: 4px;
-  gap: calc(8px * var(--battle-scale));
+  gap: calc(12px * var(--battle-scale));
+}
+
+:deep(.cg-card:not(:disabled):hover),
+:deep(.cg-card:not(:disabled):focus-visible) {
+  z-index: 40;
 }
 
 :deep(.cg-card) {
-  padding: calc(10px * var(--battle-scale)) calc(8px * var(--battle-scale));
+  padding: calc(14px * var(--battle-scale)) calc(12px * var(--battle-scale));
 }
 
 :deep(.cg-card-emoji) {
-  font-size: calc(28px * var(--battle-scale));
+  font-size: calc(38px * var(--battle-scale));
 }
 
 :deep(.cg-card-label) {
-  font-size: calc(12px * var(--battle-scale));
+  font-size: calc(14px * var(--battle-scale));
 }
 
 :deep(.cg-card-desc) {
-  font-size: calc(10px * var(--battle-scale));
+  font-size: calc(11px * var(--battle-scale));
+  left: calc(6px * var(--battle-scale));
+  right: calc(6px * var(--battle-scale));
+  bottom: calc(6px * var(--battle-scale));
+  padding: calc(6px * var(--battle-scale)) calc(8px * var(--battle-scale));
 }
 
 .battle-card-player-avatar {

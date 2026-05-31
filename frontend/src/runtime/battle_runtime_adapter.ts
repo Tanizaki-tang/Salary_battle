@@ -29,9 +29,6 @@ export type TurnResult = {
   is_trap_hit: boolean;
   is_game_over: boolean;
   next_round: number;
-  fantasy_event_id?: string | null;
-  fantasy_event_title?: string | null;
-  fantasy_event_announce?: string | null;
   /** 横屏 HR 气泡出场：fade | slam | slide */
   hr_bubble_entrance?: string;
   /** 横屏玩家气泡出场：fade | slam | slide */
@@ -82,6 +79,10 @@ export type SettleResultView = {
   stats?: SettleStats;
 };
 
+export type TextTurnOptions = {
+  onToken?: (chunk: string) => void;
+};
+
 export interface BattleRuntimeAdapter {
   listHrPersonalities?(): Promise<HrPersonalityMeta[]>;
   createSession(
@@ -96,6 +97,10 @@ export interface BattleRuntimeAdapter {
     scene_meta?: Record<string, unknown>;
     hr_personality_meta?: HrPersonalityMeta;
   }>;
-  textTurn(sessionId: string, payload: { strategy?: string; player_text?: string }): Promise<{ result: TurnResult; session: SessionState; flow?: FlowDecision }>;
+  textTurn(
+    sessionId: string,
+    payload: { strategy?: string; player_text?: string },
+    options?: TextTurnOptions,
+  ): Promise<{ result: TurnResult; session: SessionState; flow?: FlowDecision }>;
   settle(sessionId: string): Promise<{ result: SettleResultView }>;
 }

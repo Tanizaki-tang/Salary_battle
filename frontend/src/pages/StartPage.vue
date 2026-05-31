@@ -48,6 +48,11 @@ async function createAndStoreSession() {
 }
 
 async function onAccept() {
+  const validationError = formRef.value?.validate();
+  if (validationError) {
+    error.value = validationError;
+    return;
+  }
   loading.value = true;
   error.value = "";
   try {

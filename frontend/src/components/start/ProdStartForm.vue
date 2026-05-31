@@ -1,5 +1,9 @@
 <template>
   <label class="form-field">
+    昵称：
+    <input v-model="userName" maxlength="24" placeholder="排行榜显示用（如：小陈）" />
+  </label>
+  <label class="form-field">
     职位：
     <select v-model="sceneId">
       <option v-for="scene in SCENE_OPTIONS" :key="scene.sceneId" :value="scene.sceneId">
@@ -20,16 +24,23 @@ export type StartSessionParams = {
   roleId: string;
 };
 
+const userName = ref("");
 const sceneId = ref("scene_001");
 
 function reset() {
+  userName.value = "";
   sceneId.value = "scene_001";
+}
+
+function validate(): string | null {
+  if (!userName.value.trim()) return "请填写昵称，排行榜将显示该名称";
+  return null;
 }
 
 function getSessionParams(): StartSessionParams {
   const scene = findSceneOption(sceneId.value) || SCENE_OPTIONS[0];
   return {
-    userName: "候选人",
+    userName: userName.value.trim(),
     sceneId: scene.sceneId,
     roleId: scene.roleId,
   };
@@ -37,6 +48,7 @@ function getSessionParams(): StartSessionParams {
 
 defineExpose({
   reset,
+  validate,
   getSessionParams,
 });
 </script>

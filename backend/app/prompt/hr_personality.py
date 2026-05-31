@@ -185,6 +185,11 @@ def pick_random_personality_id() -> str:
     return random.choice(list(_PERSONALITY_REGISTRY.keys()))
 
 
+def _strip_wrapping_quotes(text: str) -> str:
+    """去掉人格文档示例话术外层的引号/书名号。"""
+    return text.strip().strip("「」『』“”\"'")
+
+
 def build_personality_opening(
     *,
     user_name: str,
@@ -213,7 +218,7 @@ def build_personality_opening(
             in_opening = "开场风格" in line
             continue
         if in_opening and line.startswith("-"):
-            text = line.lstrip("-").strip()
+            text = _strip_wrapping_quotes(line.lstrip("-").strip())
             if text:
                 candidates.append(text)
 
@@ -221,9 +226,9 @@ def build_personality_opening(
     if opening:
         opening = opening.replace("月薪X", f"月薪{offer_token}").replace("薪资这块是X", f"薪资这块是{offer_token}")
         opening = opening.replace("X——", f"{offer_token}——").replace("X，", f"{offer_token}，").replace("X", offer_token)
-        opening = opening.strip().strip("“”\"'")
+        opening = _strip_wrapping_quotes(opening)
     elif scene_opening_line.strip():
-        opening = scene_opening_line.strip()
+        opening = _strip_wrapping_quotes(scene_opening_line)
         opening = opening.replace("{salary_offer}", offer_token).replace("{user_name}", user_name)
     else:
         opening = f"感谢你来面试！我们这边初步给到月薪{offer_token}，你这边怎么看？"

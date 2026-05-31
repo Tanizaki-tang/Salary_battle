@@ -96,6 +96,7 @@
 import { computed, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { runtimeAdapter } from "../runtime";
+import { saveLocalLeaderboardEntry } from "../runtime/leaderboard";
 import type { SettleResultView } from "../runtime/battle_runtime_adapter";
 import {
   hireVerdictLabel,
@@ -115,11 +116,15 @@ async function loadResult() {
   loading.value = true;
   error.value = "";
   let sessionPatience: number | null = null;
+  let sessionUserName = "候选人";
   const cachedSession = sessionStorage.getItem("currentSession");
   if (cachedSession) {
     try {
-      const parsed = JSON.parse(cachedSession) as { hr_patience?: number };
+      const parsed = JSON.parse(cachedSession) as { hr_patience?: number; user_name?: string };
       if (typeof parsed.hr_patience === "number") sessionPatience = parsed.hr_patience;
+      if (typeof parsed.user_name === "string" && parsed.user_name.trim()) {
+        sessionUserName = parsed.user_name.trim();
+      }
     } catch {
       /* ignore */
     }
@@ -128,6 +133,12 @@ async function loadResult() {
     const data = await runtimeAdapter.settle(sessionId.value);
     result.value = data.result;
     hireVerdict.value = resolveTextHireVerdict(data.result, sessionPatience);
+    saveLocalLeaderboardEntry({
+      user_name: sessionUserName,
+      final_score: data.result.final_score,
+      final_salary: data.result.final_salary,
+      grade: data.result.grade,
+    });
     sessionStorage.removeItem("currentSession");
     sessionStorage.removeItem("hrOpening");
     sessionStorage.removeItem("hrPersonalityMeta");

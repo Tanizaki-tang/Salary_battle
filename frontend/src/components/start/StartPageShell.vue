@@ -45,6 +45,8 @@
 
         <p v-if="error" class="error">{{ error }}</p>
 
+        <button type="button" class="btn-leaderboard" @click="goLeaderboard">🏆 排行榜</button>
+
         <div class="start-actions">
           <button type="button" class="btn-secondary" @click="$emit('reset')">重置</button>
           <button type="button" class="btn-primary" :disabled="loading" @click="$emit('accept')">
@@ -57,7 +59,14 @@
 </template>
 
 <script setup lang="ts">
+import { useRouter } from "vue-router";
 import { bossAvatarUrl } from "../../assets/avatars";
+
+const router = useRouter();
+
+function goLeaderboard() {
+  router.push("/leaderboard");
+}
 
 defineProps<{
   name: string;
@@ -219,12 +228,30 @@ defineEmits<{
   gap: 8px;
 }
 
-.start-actions {
+.btn-leaderboard {
   margin-top: auto;
+  width: 100%;
+  height: 40px;
+  border: 1px solid rgba(0, 194, 162, 0.35);
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(10, 22, 40, 0.06), rgba(0, 194, 162, 0.1));
+  color: #007a68;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.btn-leaderboard:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(0, 194, 162, 0.18);
+}
+
+.start-actions {
   display: grid;
   grid-template-columns: 1fr 2fr;
   gap: 10px;
-  padding-top: 4px;
+  padding-top: 8px;
 }
 
 .btn-primary,

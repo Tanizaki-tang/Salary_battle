@@ -40,12 +40,12 @@ class BaseDelta:
 
 
 BASE_DELTAS: dict[CardStrategyId, BaseDelta] = {
-    "strong_push": BaseDelta(-3.0, 2.5, 0.0, 0.0),
+    "strong_push": BaseDelta(-3.0, 2.5, 0.5, 0.3),
     "probe": BaseDelta(-1.0, 0.5, 1.5, 1.0),
-    "concede": BaseDelta(1.0, 0.5, -1.0, 0.0),
-    "counter_pressure": BaseDelta(-2.0, 2.0, 1.0, 0.0),
+    "concede": BaseDelta(1.0, 0.5, -1.0, 0.5),
+    "counter_pressure": BaseDelta(-2.0, 2.0, 1.0, 0.5),
     "expose_rhetoric": BaseDelta(-2.0, 1.0, 1.0, 1.5),
-    "off_topic": BaseDelta(1.5, 0.0, 0.0, 0.0),
+    "off_topic": BaseDelta(1.5, 0.0, 0.3, 0.2),
 }
 
 # personality_id -> strategy -> (sat, salary, hours, security) multipliers; None = 1.0

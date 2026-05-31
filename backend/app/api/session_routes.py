@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import json
 import logging
 import time
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 
 from app.modules.flow_controller.orchestrator import GameFlowOrchestrator
+from app.repositories.scene_repository import load_scene, resolve_scene_id
 from app.prompt.hr_personality import (
     apply_personality_patience,
     build_personality_opening,
@@ -15,7 +18,7 @@ from app.prompt.hr_personality import (
     pick_random_personality_id,
     resolve_personality_id,
 )
-from app.repositories.scene_repository import load_scene, resolve_scene_id
+from app.service.leaderboard_service import get_leaderboard
 from app.service.llm_service import llm_latency_enabled
 from app.shared_types.game_types import ApiResponse, ConversationMessage, SessionState, TextTurnPayload
 
@@ -34,6 +37,11 @@ def health() -> ApiResponse:
 @router.get("/hr-personalities")
 def get_hr_personalities() -> ApiResponse:
     return ApiResponse(data={"personalities": list_personalities()})
+
+
+@router.get("/leaderboard")
+def leaderboard(limit: int = 50) -> ApiResponse:
+    return ApiResponse(data={"entries": get_leaderboard(limit=limit)})
 
 
 @router.post("/sessions")
@@ -97,21 +105,44 @@ def create_session(payload: dict) -> ApiResponse:
 
 
 @router.post("/sessions/{session_id}/text-turn")
-def text_turn(session_id: str, payload: TextTurnPayload) -> ApiResponse:
+def text_turn(session_id: str, payload: TextTurnPayload) -> StreamingResponse:
     session = SESSIONS.get(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="session not found")
     started = time.perf_counter()
-    next_state, turn_result, flow = orchestrator.run_text_turn(session, payload)
-    SESSIONS[session_id] = next_state
-    if llm_latency_enabled():
-        logger.info(
-            "LATENCY_API_TEXT_TURN session_id=%s round=%s total_ms=%.1f",
-            session_id,
-            session.round_index,
-            (time.perf_counter() - started) * 1000,
-        )
-    return ApiResponse(data={"result": turn_result.model_dump(), "session": next_state.model_dump(), "flow": flow.model_dump()})
+
+    def generate():
+        try:
+            for event_type, event_data in orchestrator.run_text_turn_stream(session, payload):
+                if event_type == "token":
+                    yield json.dumps({"type": "token", "text": event_data}, ensure_ascii=False) + "\n"
+                    continue
+                if event_type == "done":
+                    next_state = event_data["session_state"]
+                    SESSIONS[session_id] = next_state
+                    if llm_latency_enabled():
+                        logger.info(
+                            "LATENCY_API_TEXT_TURN session_id=%s round=%s total_ms=%.1f",
+                            session_id,
+                            session.round_index,
+                            (time.perf_counter() - started) * 1000,
+                        )
+                    yield json.dumps(
+                        {
+                            "type": "done",
+                            "data": {
+                                "result": event_data["result"],
+                                "session": event_data["session"],
+                                "flow": event_data["flow"],
+                            },
+                        },
+                        ensure_ascii=False,
+                    ) + "\n"
+        except Exception as exc:
+            logger.exception("TEXT_TURN_STREAM_FAILED session_id=%s error=%s", session_id, type(exc).__name__)
+            yield json.dumps({"type": "error", "message": str(exc)}, ensure_ascii=False) + "\n"
+
+    return StreamingResponse(generate(), media_type="application/x-ndjson")
 
 
 @router.post("/sessions/{session_id}/settle")

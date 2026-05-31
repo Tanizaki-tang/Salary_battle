@@ -67,7 +67,7 @@ export const mockRuntimeAdapter: BattleRuntimeAdapter = {
       hr_personality_meta: personalityMeta,
     };
   },
-  async textTurn(sessionId, payload) {
+  async textTurn(sessionId, payload, options) {
     const session = sessions.get(sessionId)!;
     const key = payload.strategy || "probe";
     const node = (dialogTree as any)[key];
@@ -82,9 +82,16 @@ export const mockRuntimeAdapter: BattleRuntimeAdapter = {
       counter_pressure: { hr: "slam", player: "slide" },
     };
     const bubbles = bubbleByStrategy[key] || { hr: "fade", player: "slide" };
+    const hrReply = `${session.user_name}，${node.hr_reply}`;
+    if (options?.onToken) {
+      for (let i = 0; i < hrReply.length; i += 2) {
+        options.onToken(hrReply.slice(i, i + 2));
+        await new Promise((resolve) => window.setTimeout(resolve, 16));
+      }
+    }
     return {
       result: {
-        hr_reply: `${session.user_name}，${node.hr_reply}`,
+        hr_reply: hrReply,
         delta: node.delta,
         is_trap_hit: node.delta.trap_count > 0,
         is_game_over: session.round_index >= session.max_round,

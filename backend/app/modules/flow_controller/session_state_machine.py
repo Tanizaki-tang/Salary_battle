@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.modules.flow_controller.salary_concession import apply_salary_offer
 from app.shared_types.game_types import SessionState, TurnResult
 
 
@@ -20,10 +21,7 @@ def advance_game_flow(session_state: SessionState, turn_result: TurnResult) -> S
     next_state.hr_patience = max(0, min(100, next_state.hr_patience + turn_result.delta.hr_patience))
     next_state.info_exposure = max(0, min(100, next_state.info_exposure + turn_result.delta.info_exposure))
     next_state.trap_count = max(0, next_state.trap_count + turn_result.delta.trap_count)
-    next_state.current_salary_offer = max(
-        next_state.scene_context.salary_anchor.legal_floor,
-        min(next_state.scene_context.salary_anchor.hr_initial_offer + 7000, next_state.current_salary_offer + turn_result.delta.salary_offer),
-    )
+    next_state.current_salary_offer = apply_salary_offer(next_state, turn_result.delta.salary_offer)
     next_state.equity_ratio = max(0.0, min(0.5, next_state.equity_ratio + turn_result.delta.equity_ratio))
     next_state.law_citation_count = max(0, next_state.law_citation_count + turn_result.delta.law_citation_count)
     next_state.misjudge_count = max(0, next_state.misjudge_count + turn_result.delta.misjudge_count)

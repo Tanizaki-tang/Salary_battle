@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+.pytest_cache/
+*.db
+
+# Virtual environments
+venv/
+.env.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.dbg/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+
+# Logs
+logs/
+*.log
+
+# Node / Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Model weights (local)
+models/
