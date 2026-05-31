@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: salary-battle-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    autoDeploy: true
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: API_HOST
+        value: 0.0.0.0
+      - key: API_PORT
+        value: 8000
+      - key: VOICE_BATTLE_ASR_PROVIDER
+        value: cloud
+      - key: QWEN_ASR_MODEL
+        value: qwen3-asr-flash-realtime
+      - key: QWEN_ASR_LANGUAGE
+        value: zh
+      - key: QWEN_ASR_SAMPLE_RATE
+        value: 16000
+      - key: QWEN_ASR_SILENCE_MS
+        value: 400
+      - key: QWEN_ASR_VAD_THRESHOLD
+        value: 0.0
+      - key: QWEN_TTS_MODEL
+        value: qwen3-tts-flash-realtime
+      - key: QWEN_TTS_VOICE
+        value: Cherry
+      - key: CARD_GAME_DIALOGUE_MODE
+        value: lite
+      - key: VITE_APP_VARIANT
+        value: prod

@@ -15,7 +15,9 @@ DIALOGUE_LENGTH_RULES = """## 对话字数约束（必须严格遵守）
 - HR 的 hr_reply：通常 1~2 句，总字数不超过 80 字；绝不超过 120 字。
 - HR 提问/情境：1~2 句，不超过 60 字。
 - 玩家回复（若有）：每条单句，不超过 40 字。
-- 禁止：长段落、分点列举、「首先/其次/综上」、Markdown、官方腔套话。"""
+- 允许少量自然语气词，如「嗯」「这样吧」「我直说」；但不要连续堆叠。
+- 禁止：长段落、分点列举、「首先/其次/综上」、Markdown、官方腔套话。
+- 禁止客服腔/公文腔，比如「感谢您的关注」「基于当前情况」「我司综合评估后」。"""
 
 SALARY_UNIT_RULES = """## 薪资口径（必须严格遵守）
 - negotiation_state 里 current_salary_offer 等单位是「元/月」（如 13000 表示月薪 13K）。
@@ -55,7 +57,7 @@ def clamp_chat_text(text: str, max_chars: int, *, hard_max: int | None = None) -
 
 
 def clamp_hr_reply(text: str) -> str:
-    normalized = fix_misformatted_salary_k(text)
+    normalized = normalize_spoken_hr_reply(text)
     return clamp_chat_text(normalized, HR_REPLY_MAX_CHARS, hard_max=HR_REPLY_HARD_MAX_CHARS)
 
 
@@ -66,3 +68,16 @@ def clamp_hr_question(text: str) -> str:
 
 def clamp_player_reply(text: str) -> str:
     return clamp_chat_text(text, PLAYER_REPLY_MAX_CHARS, hard_max=PLAYER_REPLY_MAX_CHARS + 10)
+
+
+def normalize_spoken_hr_reply(text: str) -> str:
+    normalized = fix_misformatted_salary_k(text)
+    normalized = re.sub(r"\s+", " ", normalized)
+    normalized = normalized.replace("您好，", "").replace("您好", "")
+    normalized = re.sub(r"^(首先|其次|另外|综上|总之|简单来说)[，,:：]?", "", normalized)
+    normalized = re.sub(r"(感谢您的关注|基于当前情况|我司综合评估后)", "", normalized)
+    normalized = re.sub(r"[“”\"]", "", normalized)
+    normalized = re.sub(r"[，,]{2,}", "，", normalized)
+    normalized = re.sub(r"[。]{2,}", "。", normalized)
+    normalized = re.sub(r"[!！]{2,}", "！", normalized)
+    return normalized.strip(" ，,")

@@ -5,7 +5,9 @@ export type VoiceBattleEvent =
   | { type: "ready"; asr?: { sample_rate?: number } }
   | { type: "asr.partial"; text: string }
   | { type: "asr.final"; text: string }
+  | { type: "hr.text.start" }
   | { type: "hr.text.delta"; text: string }
+  | { type: "hr.text.done"; text: string }
   | { type: "hr.audio.delta"; audio_b64: string; format: string; sample_rate: number }
   | { type: "turn.done"; result: TurnResult; session: SessionState; flow?: FlowDecision; hr_text?: string }
   | { type: "error"; message: string };

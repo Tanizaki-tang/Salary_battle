@@ -70,10 +70,14 @@ export type SettleResultView = {
   final_salary: number;
   grade: string;
   review_tip: string;
+  verdict?: "hired" | "rejected";
+  outcome_reason?: string;
   title?: string;
   medal?: string;
   scene_name?: string;
   summary?: string;
+  risk_notes?: string[];
+  missed_clauses?: string[];
   breakdown?: ScoreBreakdown;
   offer?: OfferPackage;
   stats?: SettleStats;

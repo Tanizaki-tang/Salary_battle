@@ -9,7 +9,7 @@
 
       <div class="call-body">
         <div class="call-top">
-          <button type="button" class="call-back" @click="$router.push('/')">‹</button>
+          <button type="button" class="call-back" @click="router.push('/')">‹</button>
           <div class="call-kpi">
             <span class="kpi-chip">💰 {{ salaryHudText }}</span>
             <span class="kpi-chip">⏱️ {{ workHoursText }}</span>
@@ -26,18 +26,27 @@
           </div>
         </div>
 
-        <div class="call-captions" :class="{ collapsed: !showCaptions }">
-          <div class="caption-row hr">
-            <div class="caption-badge">HR</div>
-            <div class="caption-text">{{ hrCaption }}</div>
+        <div class="call-chat-shell">
+          <div class="chat-head">
+            <span>通话转写</span>
+            <button type="button" class="chat-toggle" @click="showChat = !showChat">
+              {{ showChat ? "收起" : "展开" }}
+            </button>
           </div>
-          <div class="caption-row me">
-            <div class="caption-badge">我</div>
-            <div class="caption-text">{{ meCaption }}</div>
+          <div v-show="showChat" ref="chatViewport" class="call-chat">
+            <div v-if="!bubbles.length" class="chat-empty">接通后，这里会实时显示你和 HR 的对话气泡。</div>
+            <div
+              v-for="bubble in bubbles"
+              :key="bubble.id"
+              class="chat-row"
+              :class="bubble.role === 'player' ? 'is-me' : 'is-hr'"
+            >
+              <div class="chat-tag">{{ bubble.role === "player" ? "我" : "HR" }}</div>
+              <div class="chat-bubble" :class="bubble.streaming ? 'is-streaming' : ''">
+                {{ bubble.text || "…" }}
+              </div>
+            </div>
           </div>
-          <button type="button" class="caption-toggle" @click="showCaptions = !showCaptions">
-            {{ showCaptions ? "收起字幕" : "展开字幕" }}
-          </button>
         </div>
       </div>
 
@@ -78,29 +87,40 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { bossAvatarUrl } from "../assets/avatars";
 import type { SessionState } from "../runtime/battle_runtime_adapter";
 import { Pcm16MicrophoneCapture } from "../runtime/pcm16_capture";
 import { PcmStreamPlayer } from "../runtime/pcm_stream_player";
 import { connectVoiceBattle } from "../runtime/voice_battle_ws";
+import { saveBattleTranscript } from "../utils/battle_transcript";
+
+type VoiceBubble = {
+  id: string;
+  role: "hr" | "player";
+  text: string;
+  streaming: boolean;
+};
 
 const route = useRoute();
+const router = useRouter();
 const sessionId = computed(() => String(route.params.sessionId || ""));
 
 const running = ref(false);
 const statusText = ref("未连接");
-const asrText = ref("");
-const hrText = ref("");
 const session = ref<SessionState | null>(null);
-const showCaptions = ref(true);
+const showChat = ref(true);
 const micMuted = ref(false);
 const speakerOn = ref(true);
 const callStartedAt = ref<number | null>(null);
 const nowTime = ref(new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }));
+const callElapsedSec = ref(0);
+const bubbles = ref<VoiceBubble[]>([]);
+const chatViewport = ref<HTMLElement | null>(null);
 let clockTimer: number | null = null;
 let callTimer: number | null = null;
-const callElapsedSec = ref(0);
+let currentPlayerBubbleId: string | null = null;
+let currentHrBubbleId: string | null = null;
 
 const capture = new Pcm16MicrophoneCapture(16000, 40);
 const player = new PcmStreamPlayer();
@@ -120,18 +140,11 @@ const hrName = computed(() => {
     if (!raw) return "HR";
     const meta = JSON.parse(raw) as { name?: string; emoji?: string };
     if (meta?.name) return `${meta.emoji || "😊"} ${meta.name}`;
-  } catch {}
+  } catch {
+    /* ignore */
+  }
   return "HR";
 });
-
-function lastText(input: string, maxLen = 180) {
-  const s = (input || "").trim();
-  if (!s) return "…";
-  return s.length <= maxLen ? s : s.slice(-maxLen);
-}
-
-const hrCaption = computed(() => lastText(hrText.value, 220));
-const meCaption = computed(() => lastText(asrText.value, 140));
 
 function formatMaybeFloat(value: number) {
   if (!Number.isFinite(value)) return "-";
@@ -147,16 +160,135 @@ const salaryHudText = computed(() => {
 });
 
 const workHoursText = computed(() => {
-  const value = session.value?.work_hours;
+  const value = (session.value as SessionState & { work_hours?: number } | null)?.work_hours;
   if (value == null) return "-";
   return formatMaybeFloat(Number(value));
 });
 
 const securityText = computed(() => {
-  const value = session.value?.security;
+  const value = (session.value as SessionState & { security?: number } | null)?.security;
   if (value == null) return "-";
   return formatMaybeFloat(Number(value));
 });
+
+function scrollChatToBottom() {
+  window.requestAnimationFrame(() => {
+    const el = chatViewport.value;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  });
+}
+
+function snapshotTranscript() {
+  return bubbles.value
+    .filter((bubble) => bubble.text.trim())
+    .map((bubble) => ({
+      role: bubble.role === "player" ? "player" : "hr",
+      content: bubble.text.trim(),
+    }));
+}
+
+function persistTranscript() {
+  saveBattleTranscript(sessionId.value, snapshotTranscript());
+}
+
+function makeBubble(role: "hr" | "player", text = "", streaming = true) {
+  const bubble: VoiceBubble = {
+    id: `${role}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    role,
+    text,
+    streaming,
+  };
+  bubbles.value.push(bubble);
+  scrollChatToBottom();
+  return bubble.id;
+}
+
+function findBubble(id: string | null) {
+  if (!id) return null;
+  return bubbles.value.find((bubble) => bubble.id === id) || null;
+}
+
+function updatePlayerPartial(text: string) {
+  if (!text.trim()) return;
+  if (!currentPlayerBubbleId) {
+    currentPlayerBubbleId = makeBubble("player", text, true);
+  }
+  const bubble = findBubble(currentPlayerBubbleId);
+  if (!bubble) return;
+  bubble.text = text;
+  bubble.streaming = true;
+  statusText.value = "你正在说话…";
+  scrollChatToBottom();
+}
+
+function finalizePlayerText(text: string) {
+  if (!text.trim()) return;
+  if (!currentPlayerBubbleId) {
+    currentPlayerBubbleId = makeBubble("player", text, true);
+  }
+  const bubble = findBubble(currentPlayerBubbleId);
+  if (!bubble) return;
+  bubble.text = text;
+  bubble.streaming = false;
+  currentPlayerBubbleId = null;
+  persistTranscript();
+  scrollChatToBottom();
+}
+
+function startHrBubble() {
+  currentHrBubbleId = makeBubble("hr", "", true);
+  statusText.value = "HR 回复中…";
+}
+
+function appendHrDelta(text: string) {
+  if (!text) return;
+  if (!currentHrBubbleId) {
+    startHrBubble();
+  }
+  const bubble = findBubble(currentHrBubbleId);
+  if (!bubble) return;
+  bubble.text += text;
+  bubble.streaming = true;
+  scrollChatToBottom();
+}
+
+function finalizeHrText(text?: string) {
+  const bubble = findBubble(currentHrBubbleId);
+  if (!bubble) return;
+  if (text?.trim()) {
+    bubble.text = text;
+  }
+  bubble.streaming = false;
+  currentHrBubbleId = null;
+  persistTranscript();
+  statusText.value = "通话中";
+  scrollChatToBottom();
+}
+
+function restoreOpeningAndSession() {
+  bubbles.value = [];
+  currentPlayerBubbleId = null;
+  currentHrBubbleId = null;
+  const rawSession = sessionStorage.getItem("currentSession");
+  if (rawSession) {
+    try {
+      session.value = JSON.parse(rawSession) as SessionState;
+    } catch {
+      session.value = null;
+    }
+  }
+  const opening = (sessionStorage.getItem("hrOpening") || "").trim();
+  if (opening) {
+    bubbles.value.push({
+      id: "opening-hr",
+      role: "hr",
+      text: opening,
+      streaming: false,
+    });
+  }
+  persistTranscript();
+}
 
 function toggleMic() {
   micMuted.value = !micMuted.value;
@@ -191,16 +323,35 @@ function stopTimers() {
   }
 }
 
+function shutdownRealtime() {
+  capture.stop();
+  wsConn?.close();
+  wsConn = null;
+  player.stop();
+}
+
+function finishBattleAndGoResult() {
+  if (session.value) {
+    sessionStorage.setItem("currentSession", JSON.stringify(session.value));
+  }
+  persistTranscript();
+  shutdownRealtime();
+  running.value = false;
+  callStartedAt.value = null;
+  callElapsedSec.value = 0;
+  stopTimers();
+  router.push(`/result/${sessionId.value}`);
+}
+
 async function startCall() {
   if (running.value) return;
   running.value = true;
   statusText.value = "连接中…";
-  asrText.value = "";
-  hrText.value = "";
   callElapsedSec.value = 0;
   callStartedAt.value = null;
   micMuted.value = false;
   speakerOn.value = true;
+  restoreOpeningAndSession();
   startTimers();
 
   wsConn = connectVoiceBattle(sessionId.value, {
@@ -209,17 +360,25 @@ async function startCall() {
         statusText.value = "通话中";
         callStartedAt.value = Date.now();
       } else if (evt.type === "asr.partial") {
-        asrText.value = evt.text;
+        updatePlayerPartial(evt.text);
       } else if (evt.type === "asr.final") {
-        asrText.value = evt.text;
+        finalizePlayerText(evt.text);
+      } else if (evt.type === "hr.text.start") {
+        startHrBubble();
       } else if (evt.type === "hr.text.delta") {
-        hrText.value += evt.text;
+        appendHrDelta(evt.text);
+      } else if (evt.type === "hr.text.done") {
+        finalizeHrText(evt.text);
       } else if (evt.type === "hr.audio.delta") {
         if (speakerOn.value) {
           player.playPcm16Base64(evt.audio_b64, evt.sample_rate);
         }
       } else if (evt.type === "turn.done") {
         session.value = evt.session;
+        sessionStorage.setItem("currentSession", JSON.stringify(evt.session));
+        if (evt.flow?.should_end || evt.session.status === "settled") {
+          finishBattleAndGoResult();
+        }
       } else if (evt.type === "error") {
         statusText.value = evt.message;
       }
@@ -251,21 +410,25 @@ async function startCall() {
 function stopCall() {
   if (!running.value) return;
   running.value = false;
-  capture.stop();
-  wsConn?.close();
-  wsConn = null;
+  statusText.value = "通话已结束";
+  shutdownRealtime();
   callStartedAt.value = null;
   callElapsedSec.value = 0;
   stopTimers();
+  persistTranscript();
 }
 
 onMounted(() => {
+  restoreOpeningAndSession();
   startTimers();
 });
 
 onUnmounted(() => {
-  stopCall();
-  player.stop();
+  if (running.value) {
+    shutdownRealtime();
+  } else {
+    player.stop();
+  }
   stopTimers();
 });
 </script>
@@ -392,62 +555,112 @@ onUnmounted(() => {
   font-weight: 600;
 }
 
-.call-captions {
+.call-chat-shell {
   margin-top: 16px;
-  padding: 10px 12px 12px;
-  border-radius: 16px;
+  flex: 1;
+  min-height: 0;
+  border-radius: 18px;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.12);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+}
+
+.chat-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px 8px;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 12px;
+  font-weight: 800;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.chat-toggle {
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.74);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.call-chat {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chat-empty {
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: center;
+  padding: 22px 12px;
+}
+
+.chat-row {
+  display: flex;
   gap: 8px;
-  position: relative;
+  align-items: flex-end;
 }
 
-.call-captions.collapsed .caption-row {
-  display: none;
+.chat-row.is-me {
+  justify-content: flex-end;
 }
 
-.caption-row {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 8px;
-  align-items: start;
-}
-
-.caption-badge {
-  padding: 4px 8px;
+.chat-tag {
+  min-width: 28px;
+  height: 22px;
   border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-size: 11px;
   font-weight: 800;
-  background: rgba(0, 0, 0, 0.28);
-  color: rgba(255, 255, 255, 0.9);
+  color: rgba(255, 255, 255, 0.86);
+  background: rgba(255, 255, 255, 0.1);
 }
 
-.caption-row.hr .caption-badge {
-  background: rgba(250, 107, 61, 0.22);
-}
-
-.caption-row.me .caption-badge {
+.chat-row.is-me .chat-tag {
+  order: 2;
   background: rgba(0, 194, 162, 0.22);
 }
 
-.caption-text {
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 12px;
-  line-height: 1.55;
-  white-space: pre-wrap;
-  word-break: break-word;
+.chat-row.is-hr .chat-tag {
+  background: rgba(250, 107, 61, 0.22);
 }
 
-.caption-toggle {
-  margin-top: 2px;
-  align-self: flex-end;
-  border: none;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.72);
-  font-size: 11px;
-  font-weight: 700;
+.chat-bubble {
+  max-width: 78%;
+  padding: 10px 12px;
+  border-radius: 16px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.94);
+  background: rgba(255, 255, 255, 0.1);
+  word-break: break-word;
+  white-space: pre-wrap;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.chat-row.is-me .chat-bubble {
+  background: linear-gradient(135deg, rgba(0, 194, 162, 0.8), rgba(46, 213, 115, 0.72));
+}
+
+.chat-row.is-hr .chat-bubble {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.chat-bubble.is-streaming::after {
+  content: " ·";
+  opacity: 0.8;
+  animation: blink 1s steps(1) infinite;
 }
 
 .call-controls {
@@ -510,6 +723,12 @@ onUnmounted(() => {
 
 .call-action-btn.hangup {
   background: linear-gradient(135deg, #ff4757 0%, #fa6b3d 100%);
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0.25;
+  }
 }
 
 @media (max-width: 420px) {

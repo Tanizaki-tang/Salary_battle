@@ -1,30 +1,68 @@
 from __future__ import annotations
 
-from app.shared_types.game_types import SessionState, SettleResult
+import re
+
+from app.shared_types.game_types import OfferPackage, ScoreBreakdown, SessionState, SettleResult, SettleStats
+
+PATIENCE_REJECT_THRESHOLD = 10
+TRAP_LABELS = {
+    "A": "期权画饼",
+    "B": "五险一金模糊",
+    "C": "加班费打包",
+    "D": "工时边界模糊",
+    "E": "口头承诺不落书面",
+}
+CLAUSE_RULES = [
+    (
+        "social_security",
+        "五险社保",
+        re.compile(r"(五险一金|五险|社保|社保基数|养老|医保)"),
+        "五险社保基数没谈清，入职后可能按最低基数缴纳。",
+    ),
+    (
+        "housing_fund",
+        "公积金",
+        re.compile(r"(公积金|住房公积金)"),
+        "公积金比例没谈清，到账比例可能偏低。",
+    ),
+    (
+        "overtime",
+        "加班费",
+        re.compile(r"(加班费|加班补贴|调休|补休|加班)"),
+        "加班费没谈清，HR 很可能按总包或调休处理。",
+    ),
+    (
+        "working_hours",
+        "工时安排",
+        re.compile(r"(工时|工作时间|上班时间|下班时间|双休|单休|大小周|996|1075|作息)"),
+        "工时边界没谈清，存在隐性加班和大小周风险。",
+    ),
+]
+PLAYER_ACCEPT_RE = re.compile(r"(接受|可以|行啊|没问题|那就这样|成交|定了|发offer|发我offer|我接|入职)")
+HR_FINALIZE_RE = re.compile(r"(发offer|欢迎加入|可以入职|就按这个定|这边给你发offer|录用)")
 
 
 def settle_session(session_state: SessionState) -> SettleResult:
-    """
-    输入:
-    - session_state: 结算时对局状态
-
-    输出:
-    - SettleResult: final_salary/final_score/grade/review_tip
-
-    示例:
-    - 输入 hr_patience=70, info_exposure=20, trap_count=1
-    - 输出 final_score=81, grade=A
-    """
     anchors = session_state.scene_context.salary_anchor
     score_profile = session_state.scene_context.score_profile
 
     final_salary = max(anchors.legal_floor, min(anchors.ideal_target, session_state.current_salary_offer))
 
     dq_raw = (final_salary - anchors.legal_floor) / max(1, (anchors.ideal_target - anchors.legal_floor)) * 100
-    dq = max(0, min(100, dq_raw))
-    td = max(0, min(100, (len(session_state.identified_traps) / 5) * 100 + session_state.law_citation_count * 5 - session_state.misjudge_count * 3))
-    wh = max(0, min(100, 100 - session_state.info_exposure))
-    si = max(0, min(100, 40 + len(session_state.identified_traps) * 10 + session_state.law_citation_count * 5))
+    dq = int(max(0, min(100, dq_raw)))
+    td = int(
+        max(
+            0,
+            min(
+                100,
+                (len(session_state.identified_traps) / 5) * 100
+                + session_state.law_citation_count * 5
+                - session_state.misjudge_count * 3,
+            ),
+        )
+    )
+    wh = int(max(0, min(100, 100 - session_state.info_exposure)))
+    si = int(max(0, min(100, 40 + len(session_state.identified_traps) * 10 + session_state.law_citation_count * 5)))
 
     final_score = int(
         dq * score_profile.dq_weight
@@ -38,11 +76,172 @@ def settle_session(session_state: SessionState) -> SettleResult:
     if session_state.info_exposure > score_profile.high_exposure_threshold:
         final_score -= score_profile.penalty_high_exposure
     final_score = max(0, min(110, final_score))
-
     grade = "A" if final_score >= score_profile.grade_a else "B" if final_score >= score_profile.grade_b else "C"
+
+    text_blob = _conversation_text(session_state)
+    discussed = _detect_discussed_clauses(session_state, text_blob)
+    missed_clauses = [label for key, label, *_ in CLAUSE_RULES if not discussed[key]]
+    offer_accepted = _is_offer_accepted(session_state)
+    rounds_exhausted = session_state.round_index >= max(1, session_state.max_round)
+    patience_collapsed = session_state.hr_patience <= PATIENCE_REJECT_THRESHOLD
+    early_round_limit = max(3, min(6, session_state.max_round // 4 + 1))
+    rushed_deal = offer_accepted and session_state.round_index <= early_round_limit and len(missed_clauses) >= 2
+
+    if not offer_accepted and (patience_collapsed or rounds_exhausted):
+        verdict = "rejected"
+        if patience_collapsed:
+            outcome_reason = "HR 好感度已经跌破底线，你还没把 offer 关键条件谈拢，最终被直接拒绝。"
+        else:
+            outcome_reason = "谈判轮次耗尽时，你仍未把 offer 条件真正谈实，HR 最终没有给出确认录用。"
+    else:
+        verdict = "hired"
+        if rushed_deal:
+            outcome_reason = "你过早锁定 offer，虽然拿到录用，但多个关键条款没谈清，存在明显被坑风险。"
+        else:
+            outcome_reason = "你在 HR 耐心耗尽前稳住了谈判节奏，顺利拿到了可落地的 offer。"
+
+    offer = OfferPackage(
+        equity_ratio=max(0.0, float(session_state.equity_ratio)),
+        social_security_base="全额工资基数"
+        if discussed["social_security"] or "B" in session_state.identified_traps
+        else "未谈妥，存在按最低基数缴纳风险",
+        housing_fund_ratio="12%"
+        if discussed["housing_fund"] or "B" in session_state.identified_traps
+        else "未谈妥，比例可能偏低",
+        overtime_policy="单独计算"
+        if discussed["overtime"] or "C" in session_state.identified_traps
+        else "未谈妥，可能被默认含在总包",
+        working_hours_agreement="双休/工时写入 offer"
+        if discussed["working_hours"] or "D" in session_state.identified_traps
+        else "未谈妥，存在隐性加班风险",
+    )
+    risk_notes = _build_risk_notes(verdict=verdict, rushed_deal=rushed_deal, missed_clauses=missed_clauses)
+
     return SettleResult(
         final_salary=final_salary,
         final_score=final_score,
         grade=grade,
-        review_tip="你成功控制了信息暴露度，建议继续提升陷阱识别稳定性。",
+        review_tip=build_review_tip(
+            final_score=final_score,
+            dq=dq,
+            td=td,
+            wh=wh,
+            si=si,
+            session_state=session_state,
+        ),
+        verdict=verdict,
+        outcome_reason=outcome_reason,
+        title=_build_title(verdict=verdict, rushed_deal=rushed_deal, grade=grade),
+        medal=_build_medal(verdict=verdict, rushed_deal=rushed_deal, grade=grade),
+        scene_name=session_state.scene_context.meta.scene_name,
+        summary=_build_summary(
+            verdict=verdict,
+            rushed_deal=rushed_deal,
+            final_salary=final_salary,
+            missed_clauses=missed_clauses,
+        ),
+        risk_notes=risk_notes,
+        missed_clauses=missed_clauses,
+        breakdown=ScoreBreakdown(dq=dq, td=td, wh=wh, si=si),
+        offer=offer,
+        stats=SettleStats(
+            traps_identified=len(session_state.identified_traps),
+            traps_total=5,
+            trap_labels=[TRAP_LABELS[t] for t in session_state.identified_traps if t in TRAP_LABELS],
+            law_citation_count=session_state.law_citation_count,
+            strategy_count=len(set(session_state.strategy_history)),
+            final_patience=session_state.hr_patience,
+        ),
     )
+
+
+def build_review_tip(
+    *,
+    final_score: int,
+    dq: int,
+    td: int,
+    wh: int,
+    si: int,
+    session_state: SessionState,
+) -> str:
+    if session_state.info_exposure > session_state.scene_context.score_profile.high_exposure_threshold:
+        return "你在谈判里暴露了太多底牌，后面要更克制地给信息，别让 HR 轻松拿捏节奏。"
+    if final_score >= 85:
+        return "这轮谈得很老练，既保住了薪资，也能持续追问关键条款，整体节奏控制得不错。"
+    if td < 35:
+        return "陷阱识别偏弱，后面要更主动追问加班费、五险一金和工时边界，别只盯着薪资。"
+    weakest = min(("成交质量", dq), ("陷阱识别", td), ("工时目标", wh), ("社保匹配", si), key=lambda item: item[1])[0]
+    return f"这局还有提升空间，当前最短板是{weakest}，下次建议围绕关键条款多追问两轮。"
+
+
+def _conversation_text(session_state: SessionState) -> str:
+    return "\n".join((msg.content or "").strip() for msg in session_state.conversation_history if (msg.content or "").strip())
+
+
+def _detect_discussed_clauses(session_state: SessionState, text_blob: str) -> dict[str, bool]:
+    detected: dict[str, bool] = {}
+    trap_set = set(session_state.identified_traps)
+    for key, _label, pattern, _risk in CLAUSE_RULES:
+        discussed = bool(pattern.search(text_blob))
+        if key in {"social_security", "housing_fund"} and "B" in trap_set:
+            discussed = True
+        if key == "overtime" and "C" in trap_set:
+            discussed = True
+        if key == "working_hours" and "D" in trap_set:
+            discussed = True
+        detected[key] = discussed
+    return detected
+
+
+def _is_offer_accepted(session_state: SessionState) -> bool:
+    for msg in session_state.conversation_history[1:]:
+        content = (msg.content or "").strip()
+        if not content:
+            continue
+        if msg.role == "player" and PLAYER_ACCEPT_RE.search(content):
+            return True
+        if msg.role == "hr" and msg.round_index > 0 and HR_FINALIZE_RE.search(content):
+            return True
+    return False
+
+
+def _build_risk_notes(*, verdict: str, rushed_deal: bool, missed_clauses: list[str]) -> list[str]:
+    notes: list[str] = []
+    if verdict == "rejected":
+        notes.append("本局没有在 HR 耐心耗尽前把录用条件谈实，结果直接转为拒绝。")
+    if rushed_deal:
+        notes.append("你成交得太快，offer 里仍有多个隐性坑位需要补谈。")
+    for key, label, _pattern, risk in CLAUSE_RULES:
+        if label in missed_clauses:
+            notes.append(risk)
+    return notes
+
+
+def _build_title(*, verdict: str, rushed_deal: bool, grade: str) -> str:
+    if verdict == "rejected":
+        return "谈崩出局"
+    if rushed_deal:
+        return "带坑录用"
+    if grade == "A":
+        return "稳准狠拿 Offer"
+    if grade == "B":
+        return "稳住节奏拿 Offer"
+    return "惊险过关"
+
+
+def _build_medal(*, verdict: str, rushed_deal: bool, grade: str) -> str:
+    if verdict == "rejected":
+        return "💥"
+    if rushed_deal:
+        return "⚠️"
+    return "🏆" if grade == "A" else "🎯"
+
+
+def _build_summary(*, verdict: str, rushed_deal: bool, final_salary: int, missed_clauses: list[str]) -> str:
+    salary_k = round(final_salary / 1000, 1)
+    if verdict == "rejected":
+        return f"你一度把月薪谈到 {salary_k}K，但在 HR 耐心见底前没把 offer 条件锁死，最终遗憾出局。"
+    if rushed_deal and missed_clauses:
+        missed = "、".join(missed_clauses[:3])
+        return f"你拿到了 {salary_k}K 的录用，但因为过早成交，{missed} 这些关键条款还没谈清。"
+    return f"你成功把 offer 落到 {salary_k}K，并且把关键风险点谈得比较扎实。"

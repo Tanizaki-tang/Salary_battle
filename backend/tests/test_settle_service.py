@@ -61,7 +61,8 @@ def test_settle_result_includes_breakdown_and_offer():
     assert result.offer.overtime_policy == "单独计算"
     assert result.stats is not None
     assert result.stats.traps_identified == 3
-    assert "期权画饼" in result.stats.trap_labels
+    assert "五险一金模糊" in result.stats.trap_labels
+    assert "加班费打包" in result.stats.trap_labels
     assert result.summary
 
 

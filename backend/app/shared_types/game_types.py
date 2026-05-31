@@ -169,10 +169,14 @@ class SettleResult(BaseModel):
     final_score: int
     grade: str
     review_tip: str
+    verdict: Literal["hired", "rejected"] = "hired"
+    outcome_reason: str = ""
     title: str = ""
     medal: str = ""
     scene_name: str = ""
     summary: str = ""
+    risk_notes: list[str] = Field(default_factory=list)
+    missed_clauses: list[str] = Field(default_factory=list)
     breakdown: ScoreBreakdown | None = None
     offer: OfferPackage | None = None
     stats: SettleStats | None = None

@@ -29,7 +29,10 @@ from app.shared_types.game_types import AgentToolCallTrace, AgentTurnDecision, S
 PROMPT_DIR = Path(__file__).resolve().parents[2] / "prompt"
 DEFAULT_PROMPT_FILE = "default_system_prompt.txt"
 REPLY_STREAM_SUFFIX = (
-    "\n\n【本轮输出要求】只输出你要对候选人说的口语回复正文，2-4句、≤80字，口语自然。"
+    "\n\n【本轮输出要求】只输出你要对候选人说的口语回复正文。"
+    "像真人在招聘软件里即时回复，2-3句、≤80字。"
+    "允许少量自然语气词，比如“嗯”“这样吧”“我直说”，但不要油腻、不要模板腔。"
+    "优先短句，别写成长段，不要分点，不要总结，不要客服话术。"
     "禁止 JSON、markdown、代码块、字段名或任何解释。"
 )
 logger = logging.getLogger(__name__)
@@ -269,7 +272,7 @@ class HrNegotiationAgent:
             SystemMessage(content=system_prompt),
             HumanMessage(content=json.dumps(user_payload, ensure_ascii=False)),
         ]
-        llm = self._get_llm()
+        llm = self._build_stream_llm()
         try:
             yield from self._iter_llm_text_chunks(llm, messages)
         except (NotFoundError, BadRequestError) as exc:
@@ -282,9 +285,7 @@ class HrNegotiationAgent:
                 self._active_model,
                 DEFAULT_MODEL,
             )
-            llm = self._build_llm(model=DEFAULT_MODEL, temperature=0.1)
-            self._llm = llm
-            self._active_model = DEFAULT_MODEL
+            llm = self._build_llm(model=DEFAULT_MODEL, temperature=0.55)
             yield from self._iter_llm_text_chunks(llm, messages)
 
     @staticmethod
@@ -476,6 +477,13 @@ class HrNegotiationAgent:
             self._active_model = self._llm_config.model
             self._llm = self._build_llm(model=self._active_model, temperature=0.1)
         return self._llm
+
+    def _build_stream_llm(self) -> ChatOpenAI:
+        if self._llm_config is None:
+            self._llm_config = load_config_from_env()
+        if self._active_model is None:
+            self._active_model = self._llm_config.model
+        return self._build_llm(model=self._active_model, temperature=0.55)
 
     def _build_llm(self, model: str, *, temperature: float) -> ChatOpenAI:
         cfg = self._llm_config or load_config_from_env()

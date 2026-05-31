@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
@@ -12,15 +13,22 @@ from app.api.session_routes import router as session_router
 from app.api.voice_battle_routes import router as voice_battle_router
 
 
-app = FastAPI(title="Salary Battle API", version="0.1.0")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
+def _cors_origins() -> list[str]:
+    raw = (os.getenv("CORS_ALLOW_ORIGINS") or "").strip()
+    if raw:
+        return [item.strip() for item in raw.split(",") if item.strip()]
+    return [
         "http://127.0.0.1:5173",
         "http://localhost:5173",
         "http://127.0.0.1:4173",
         "http://localhost:4173",
-    ],
+    ]
+
+
+app = FastAPI(title="Salary Battle API", version="0.1.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

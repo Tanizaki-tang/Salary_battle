@@ -7,6 +7,9 @@ export function resolveTextHireVerdict(
   result: SettleResultView,
   sessionPatience?: number | null,
 ): HireVerdict {
+  if (result.verdict === "hired" || result.verdict === "rejected") {
+    return result.verdict;
+  }
   const patience = result.stats?.final_patience ?? sessionPatience;
   if (typeof patience === "number" && patience <= 10) return "rejected";
   if (result.grade === "C" && result.final_score < 50) return "rejected";

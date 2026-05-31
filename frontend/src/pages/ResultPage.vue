@@ -27,6 +27,11 @@
               <div class="result-score">{{ result.final_score }} <span>分</span></div>
             </div>
 
+            <div v-if="result.outcome_reason" class="result-card outcome-card">
+              <div class="section-title no-gap">结果说明</div>
+              <p class="outcome-text">{{ result.outcome_reason }}</p>
+            </div>
+
             <div class="result-card">
               <div v-for="row in offerRows" :key="row.label" class="offer-row">
                 <span class="offer-icon">{{ row.icon }}</span>
@@ -76,6 +81,22 @@
             </div>
 
             <p v-if="result.summary" class="summary-text">{{ result.summary }}</p>
+
+            <div v-if="missedClauses.length" class="result-card">
+              <div class="section-title no-gap">漏谈条款</div>
+              <div class="pill-list">
+                <span v-for="item in missedClauses" :key="item" class="risk-pill missed">{{ item }}</span>
+              </div>
+            </div>
+
+            <div v-if="riskNotes.length" class="result-card">
+              <div class="section-title no-gap">风险提示</div>
+              <div class="risk-list">
+                <p v-for="(item, idx) in riskNotes" :key="`${idx}-${item}`" class="risk-item">
+                  {{ item }}
+                </p>
+              </div>
+            </div>
 
             <div v-if="transcript.length" class="transcript-section">
               <button type="button" class="transcript-toggle" @click="showTranscript = !showTranscript">
@@ -287,6 +308,9 @@ const trapLabelText = computed(() => {
   return labels.length ? labels.join("、") : "";
 });
 
+const riskNotes = computed(() => result.value?.risk_notes || []);
+const missedClauses = computed(() => result.value?.missed_clauses || []);
+
 if (!sessionId.value) {
   router.push("/");
 } else {
@@ -426,6 +450,21 @@ if (!sessionId.value) {
   margin: 4px 0 8px;
 }
 
+.section-title.no-gap {
+  margin: 0 0 8px;
+}
+
+.outcome-card {
+  margin-bottom: 12px;
+}
+
+.outcome-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.65;
+  color: #333;
+}
+
 .score-card { padding-bottom: 10px; }
 .score-row { margin-bottom: 12px; }
 .score-row-head {
@@ -487,6 +526,45 @@ if (!sessionId.value) {
   color: #666;
   margin: 0 0 8px;
   padding: 0 2px;
+}
+
+.pill-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.risk-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.risk-pill.missed {
+  color: #9c3b00;
+  background: #fff2e8;
+  border: 1px solid #ffd1b3;
+}
+
+.risk-list {
+  display: grid;
+  gap: 8px;
+}
+
+.risk-item {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #5b3a00;
+  background: #fff8e6;
+  border: 1px solid #ffe7a3;
+  border-radius: 10px;
+  padding: 9px 10px;
 }
 
 .result-actions {
