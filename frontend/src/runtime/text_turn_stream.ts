@@ -1,4 +1,5 @@
 import type { FlowDecision, SessionState, TurnResult } from "./battle_runtime_adapter";
+import { resolveApiBaseUrl } from "../utils/api_base_url";
 
 export type TextTurnPayload = {
   strategy?: string;
@@ -20,7 +21,7 @@ export async function streamTextTurn(
   payload: TextTurnPayload,
   handlers: TextTurnStreamHandlers,
 ): Promise<TextTurnStreamDone> {
-  const baseURL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
+  const baseURL = resolveApiBaseUrl();
   const res = await fetch(`${baseURL}/api/v1/sessions/${sessionId}/text-turn/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

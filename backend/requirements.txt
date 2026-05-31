@@ -5,3 +5,6 @@ openai
 langchain
 langchain-openai
 python-dotenv
+dashscope
+sherpa-onnx
+numpy

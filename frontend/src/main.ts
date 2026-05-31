@@ -10,6 +10,8 @@ import BattlePage from "./pages/BattlePage.vue";
 
 import ResultPage from "./pages/ResultPage.vue";
 
+import VoiceBattlePage from "./pages/VoiceBattlePage.vue";
+
 import CardGameStartPage from "./pages/CardGameStartPage.vue";
 
 import CardGamePage from "./pages/CardGamePage.vue";
@@ -32,6 +34,8 @@ const router = createRouter({
 
     { path: "/battle/:sessionId", component: BattlePage },
 
+    { path: "/voice-battle/:sessionId", component: VoiceBattlePage },
+
     { path: "/result/:sessionId", component: ResultPage },
 
     { path: "/card-game", component: CardGameStartPage },
@@ -47,4 +51,3 @@ const router = createRouter({
 
 
 createApp(App).use(router).mount("#app");
-

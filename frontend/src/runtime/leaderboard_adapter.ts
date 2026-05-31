@@ -5,8 +5,9 @@ import {
   rankLeaderboard,
   type LeaderboardEntry,
 } from "./leaderboard";
+import { resolveApiBaseUrl } from "../utils/api_base_url";
 
-const baseURL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
+const baseURL = resolveApiBaseUrl();
 const client = axios.create({ baseURL });
 const mode = (import.meta.env.VITE_RUNTIME_MODE || "api").toLowerCase();
 

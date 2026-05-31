@@ -236,6 +236,7 @@ import { useBattleViewport } from "../composables/useBattleViewport";
 import { runtimeAdapter } from "../runtime";
 import type { SessionState } from "../runtime/battle_runtime_adapter";
 import { saveBattleTranscript, type TranscriptMessage } from "../utils/battle_transcript";
+import { resolveApiBaseUrl } from "../utils/api_base_url";
 
 const route = useRoute();
 const router = useRouter();
@@ -306,7 +307,7 @@ try {
   }
 } catch {}
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
+const apiBaseUrl = resolveApiBaseUrl();
 const normalBgmUrl = `${apiBaseUrl}/resources/music&effect/普通阶段.mp3`;
 const cardBgmUrl = `${apiBaseUrl}/resources/music&effect/打牌阶段.mp3`;
 

@@ -29,23 +29,7 @@ SESSIONS: dict[str, SessionState] = {}
 logger = logging.getLogger(__name__)
 
 
-@router.get("/health")
-def health() -> ApiResponse:
-    return ApiResponse(data={"status": "healthy", "service": "salary-battle-api", "version": "v1.2"})
-
-
-@router.get("/hr-personalities")
-def get_hr_personalities() -> ApiResponse:
-    return ApiResponse(data={"personalities": list_personalities()})
-
-
-@router.get("/leaderboard")
-def leaderboard(limit: int = 50) -> ApiResponse:
-    return ApiResponse(data={"entries": get_leaderboard(limit=limit)})
-
-
-@router.post("/sessions")
-def create_session(payload: dict) -> ApiResponse:
+def create_session_data(payload: dict, *, max_round_override: int | None = None) -> dict:
     user_id = payload.get("user_id")
     if not user_id:
         raise HTTPException(status_code=400, detail="user_id required")
@@ -75,7 +59,7 @@ def create_session(payload: dict) -> ApiResponse:
         hr_personality_id=hr_personality_id,
         role_id=role_id,
         scene_id=scene_id,
-        max_round=initial.max_round,
+        max_round=int(max_round_override) if max_round_override is not None else initial.max_round,
         hr_patience=apply_personality_patience(initial.hr_patience, hr_personality_id),
         info_exposure=initial.info_exposure,
         trap_count=initial.trap_count,
@@ -90,19 +74,37 @@ def create_session(payload: dict) -> ApiResponse:
         scene_context=scene_context,
     )
     SESSIONS[session.session_id] = session
-    return ApiResponse(
-        data={
-            "session": session.model_dump(),
-            "hr_opening": opening_with_name,
-            "scene_meta": scene_context.meta.model_dump(),
-            "hr_personality_meta": {
-                "personality_id": personality_meta.personality_id,
-                "name": personality_meta.name,
-                "tagline": personality_meta.tagline,
-                "emoji": personality_meta.emoji,
-            },
-        }
-    )
+    return {
+        "session": session.model_dump(),
+        "hr_opening": opening_with_name,
+        "scene_meta": scene_context.meta.model_dump(),
+        "hr_personality_meta": {
+            "personality_id": personality_meta.personality_id,
+            "name": personality_meta.name,
+            "tagline": personality_meta.tagline,
+            "emoji": personality_meta.emoji,
+        },
+    }
+
+
+@router.get("/health")
+def health() -> ApiResponse:
+    return ApiResponse(data={"status": "healthy", "service": "salary-battle-api", "version": "v1.2"})
+
+
+@router.get("/hr-personalities")
+def get_hr_personalities() -> ApiResponse:
+    return ApiResponse(data={"personalities": list_personalities()})
+
+
+@router.get("/leaderboard")
+def leaderboard(limit: int = 50) -> ApiResponse:
+    return ApiResponse(data={"entries": get_leaderboard(limit=limit)})
+
+
+@router.post("/sessions")
+def create_session(payload: dict) -> ApiResponse:
+    return ApiResponse(data=create_session_data(payload))
 
 
 @router.post("/sessions/{session_id}/text-turn")

@@ -52,6 +52,9 @@
           <button type="button" class="btn-primary" :disabled="loading" @click="$emit('accept')">
             {{ loading ? "创建对局中…" : "开始谈判" }}
           </button>
+          <button type="button" class="btn-voice" :disabled="loading" @click="$emit('acceptVoice')">
+            {{ loading ? "创建对局中…" : "语音通话" }}
+          </button>
         </div>
       </div>
     </div>
@@ -78,6 +81,7 @@ defineProps<{
 
 defineEmits<{
   accept: [];
+  acceptVoice: [];
   reset: [];
 }>();
 </script>
@@ -249,13 +253,14 @@ defineEmits<{
 
 .start-actions {
   display: grid;
-  grid-template-columns: 1fr 2fr;
+  grid-template-columns: 1fr 1.2fr 1.2fr;
   gap: 10px;
   padding-top: 8px;
 }
 
 .btn-primary,
-.btn-secondary {
+.btn-secondary,
+.btn-voice {
   height: 44px;
   border: none;
   border-radius: 12px;
@@ -279,6 +284,12 @@ defineEmits<{
   background: #fff;
   color: #666;
   border: 1px solid #ddd;
+}
+
+.btn-voice {
+  background: linear-gradient(135deg, #00bfa6, #00a88d);
+  color: #fff;
+  box-shadow: 0 6px 16px rgba(0, 194, 162, 0.28);
 }
 
 .error {
