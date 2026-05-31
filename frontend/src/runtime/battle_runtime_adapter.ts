@@ -79,8 +79,14 @@ export type SettleResultView = {
   stats?: SettleStats;
 };
 
-export type TextTurnOptions = {
-  onToken?: (chunk: string) => void;
+export type TextTurnResponse = {
+  result: TurnResult;
+  session: SessionState;
+  flow?: FlowDecision;
+};
+
+export type TextTurnStreamHandlers = {
+  onToken: (text: string) => void;
 };
 
 export interface BattleRuntimeAdapter {
@@ -100,7 +106,14 @@ export interface BattleRuntimeAdapter {
   textTurn(
     sessionId: string,
     payload: { strategy?: string; player_text?: string },
-    options?: TextTurnOptions,
-  ): Promise<{ result: TurnResult; session: SessionState; flow?: FlowDecision }>;
-  settle(sessionId: string): Promise<{ result: SettleResultView }>;
+  ): Promise<TextTurnResponse>;
+  textTurnStream(
+    sessionId: string,
+    payload: { strategy?: string; player_text?: string },
+    handlers: TextTurnStreamHandlers,
+  ): Promise<TextTurnResponse>;
+  settle(sessionId: string): Promise<{
+    result: SettleResultView;
+    conversation_history?: Array<{ role?: string; content?: string; round_index?: number }>;
+  }>;
 }

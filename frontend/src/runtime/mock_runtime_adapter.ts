@@ -1,7 +1,8 @@
 import dialogTree from "../mock/dialog_tree.json";
 import resultRules from "../mock/result_rules.json";
 import scenario from "../mock/scenario.json";
-import type { BattleRuntimeAdapter, HrPersonalityMeta, SessionState } from "./battle_runtime_adapter";
+import type { BattleRuntimeAdapter, HrPersonalityMeta, SessionState, TextTurnStreamHandlers } from "./battle_runtime_adapter";
+import { mockStreamText } from "./text_turn_stream";
 
 const MOCK_PERSONALITIES: HrPersonalityMeta[] = [
   { personality_id: "hr_newbie", name: "菜鸟新人", tagline: "紧张没底气，容易说漏信息", emoji: "🐣" },
@@ -67,7 +68,10 @@ export const mockRuntimeAdapter: BattleRuntimeAdapter = {
       hr_personality_meta: personalityMeta,
     };
   },
-  async textTurn(sessionId, payload, options) {
+  async textTurn(sessionId, payload) {
+    return this.textTurnStream(sessionId, payload, { onToken: () => {} });
+  },
+  async textTurnStream(sessionId, payload, handlers: TextTurnStreamHandlers) {
     const session = sessions.get(sessionId)!;
     const key = payload.strategy || "probe";
     const node = (dialogTree as any)[key];
@@ -83,12 +87,7 @@ export const mockRuntimeAdapter: BattleRuntimeAdapter = {
     };
     const bubbles = bubbleByStrategy[key] || { hr: "fade", player: "slide" };
     const hrReply = `${session.user_name}，${node.hr_reply}`;
-    if (options?.onToken) {
-      for (let i = 0; i < hrReply.length; i += 2) {
-        options.onToken(hrReply.slice(i, i + 2));
-        await new Promise((resolve) => window.setTimeout(resolve, 16));
-      }
-    }
+    await mockStreamText(hrReply, handlers);
     return {
       result: {
         hr_reply: hrReply,

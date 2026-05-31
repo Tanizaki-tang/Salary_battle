@@ -3,9 +3,10 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Iterator
-from typing import Any, Literal
+from typing import Any
 
 from app.modules.agent.hr_negotiation_agent import HrNegotiationAgent
+from app.prompt.dialogue_style import clamp_hr_reply
 from app.modules.flow_controller.persistence_adapter import save_session_result
 from app.modules.flow_controller.phase_policy import decide_next_phase, resolve_effective_max_round
 from app.modules.flow_controller.session_state_machine import advance_game_flow
@@ -64,24 +65,40 @@ class GameFlowOrchestrator:
             )
         return next_state, turn_result, flow
 
-    def run_text_turn_stream(
-        self, session_state: SessionState, text_payload: TextTurnPayload
-    ) -> Iterator[tuple[Literal["token", "done"], Any]]:
+    def iter_text_turn(
+        self,
+        session_state: SessionState,
+        text_payload: TextTurnPayload,
+    ) -> Iterator[dict[str, Any]]:
+        """SSE 事件：token → done（含 result/session/flow）。"""
         started = time.perf_counter()
-        player_text = text_payload.player_text or text_payload.strategy or ""
-        text = (player_text or "").strip() or "我希望了解这份 offer 的组成和边界。"
+        player_text = (text_payload.player_text or text_payload.strategy or "").strip()
+        if not player_text:
+            player_text = "我希望了解这份 offer 的组成和边界。"
+
         reply_parts: list[str] = []
-
-        for chunk in self.hr_agent.iter_hr_reply_chunks(session_state=session_state, player_text=text):
-            reply_parts.append(chunk)
-            yield "token", chunk
-
-        decision = self.hr_agent.decide_state_for_reply(
+        for chunk in self.hr_agent.iter_hr_reply_chunks(
             session_state=session_state,
-            player_text=text,
-            hr_reply_raw="".join(reply_parts),
-            traces=[],
-        )
+            player_text=player_text,
+        ):
+            reply_parts.append(chunk)
+            yield {"event": "token", "text": chunk}
+
+        hr_reply_raw = clamp_hr_reply("".join(reply_parts))
+        if hr_reply_raw.strip():
+            decision = self.hr_agent.decide_state_from_reply(
+                session_state=session_state,
+                player_text=player_text,
+                hr_reply_raw=hr_reply_raw,
+                traces=[],
+            )
+        else:
+            decision = self.hr_agent._safe_default_decision(
+                session_state=session_state,
+                player_text=player_text,
+                traces=[],
+            )
+
         turn_result = self._decision_to_turn_result(session_state, decision)
         next_state = advance_game_flow(session_state, turn_result)
         self._append_round_history(next_state, decision.player_text_used, turn_result.hr_reply, turn_result.next_round)
@@ -103,11 +120,11 @@ class GameFlowOrchestrator:
                 (time.perf_counter() - started) * 1000,
             )
 
-        yield "done", {
+        yield {
+            "event": "done",
             "result": turn_result.model_dump(),
             "session": next_state.model_dump(),
             "flow": flow.model_dump(),
-            "session_state": next_state,
         }
 
     def settle_and_persist(self, session_state: SessionState) -> tuple[SettleResult, PersistResult]:

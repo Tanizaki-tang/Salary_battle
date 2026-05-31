@@ -36,7 +36,7 @@
               <strong>结束方式</strong>：主动接受 offer、谈崩，或第 8 轮强制结算。
             </li>
           </ol>
-          <p class="rules-foot">正式版：仅选择职位，HR 性格随机 · 满意度达标后进入卡牌阶段</p>
+          <p class="rules-foot">正式版：仅选择职位，HR 性格随机 · HR 耐心降至阈值后进入卡牌阶段</p>
         </aside>
 
         <div class="selectors">

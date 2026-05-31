@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 import time
-from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -18,18 +17,20 @@ from app.service.history_service import (
     build_agent_state_payload,
     build_agent_turn_payload,
 )
-from app.service.llm_service import DEFAULT_MODEL, LLMConfig, llm_latency_enabled, load_config_from_env
+from app.service.llm_service import (
+    DEFAULT_MODEL,
+    LLMConfig,
+    llm_latency_enabled,
+    load_config_from_env,
+    qwen_disable_thinking_extra,
+)
 from app.shared_types.game_types import AgentToolCallTrace, AgentTurnDecision, SessionState, TurnDelta
 
 PROMPT_DIR = Path(__file__).resolve().parents[2] / "prompt"
 DEFAULT_PROMPT_FILE = "default_system_prompt.txt"
 REPLY_STREAM_SUFFIX = (
-    "\n\n【本阶段任务】仅输出你对候选人说的话（口语正文）。"
-    "不要输出 JSON、不要 markdown、不要解释。2-4 句，口语自然。"
-)
-STATE_JSON_SUFFIX = (
-    "\n\n【本阶段任务】HR 回复已生成，请勿改写 hr_reply。"
-    "根据玩家输入、HR 回复与谈判状态，只输出状态修正 JSON，字段见 target_schema。"
+    "\n\n【本轮输出要求】只输出你要对候选人说的口语回复正文，2-4句、≤80字，口语自然。"
+    "禁止 JSON、markdown、代码块、字段名或任何解释。"
 )
 logger = logging.getLogger(__name__)
 
@@ -44,31 +45,63 @@ class HrNegotiationAgent:
         text = (player_text or "").strip()
         if not text:
             text = "我希望了解这份 offer 的组成和边界。"
-        reply_raw = "".join(self.iter_hr_reply_chunks(session_state=session_state, player_text=text))
-        return self.decide_state_for_reply(
+        reply_parts: list[str] = []
+        for chunk in self.iter_hr_reply_chunks(session_state=session_state, player_text=text):
+            reply_parts.append(chunk)
+        hr_reply_raw = clamp_hr_reply("".join(reply_parts))
+        if not hr_reply_raw.strip():
+            return self._safe_default_decision(session_state=session_state, player_text=text, traces=[])
+        return self.decide_state_from_reply(
             session_state=session_state,
             player_text=text,
-            hr_reply_raw=reply_raw,
+            hr_reply_raw=hr_reply_raw,
             traces=[],
         )
 
-    def iter_hr_reply_chunks(self, *, session_state: SessionState, player_text: str) -> Iterator[str]:
+    def iter_hr_reply_chunks(
+        self,
+        *,
+        session_state: SessionState,
+        player_text: str,
+    ):
         text = (player_text or "").strip()
         if not text:
             text = "我希望了解这份 offer 的组成和边界。"
-        system_prompt = self._load_scene_prompt(
+        call_started = time.perf_counter()
+        logger.info(
+            "LLM_STREAM_START session_id=%s scene_id=%s round=%s text_len=%s",
+            session_state.session_id,
             session_state.scene_id,
-            session_state.hr_personality_id,
-            suffix=REPLY_STREAM_SUFFIX,
+            session_state.round_index,
+            len(text),
         )
-        user_payload = build_agent_reply_payload(session_state=session_state, player_text=text)
-        messages = [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=json.dumps(user_payload, ensure_ascii=False)),
-        ]
-        yield from self._stream_llm_text(messages)
+        try:
+            yield from self._stream_langchain_reply(session_state=session_state, player_text=text)
+        except Exception as exc:
+            logger.exception(
+                "LLM_STREAM_FAILED session_id=%s scene_id=%s round=%s error=%s",
+                session_state.session_id,
+                session_state.scene_id,
+                session_state.round_index,
+                type(exc).__name__,
+            )
+            fallback = self._address_player(
+                session_state.user_name,
+                session_state.scene_context.tone_map["probe"],
+            )
+            if fallback:
+                yield fallback
+        finally:
+            if llm_latency_enabled():
+                logger.info(
+                    "LLM_STREAM_END session_id=%s scene_id=%s round=%s elapsed_ms=%.1f",
+                    session_state.session_id,
+                    session_state.scene_id,
+                    session_state.round_index,
+                    (time.perf_counter() - call_started) * 1000,
+                )
 
-    def decide_state_for_reply(
+    def decide_state_from_reply(
         self,
         *,
         session_state: SessionState,
@@ -77,50 +110,119 @@ class HrNegotiationAgent:
         traces: list[AgentToolCallTrace],
     ) -> AgentTurnDecision:
         base_result = self._base_turn_result(session_state)
-        text = (player_text or "").strip() or "我希望了解这份 offer 的组成和边界。"
-        hr_reply_raw = clamp_hr_reply(hr_reply_raw.strip()) or str(base_result["hr_reply"])
         call_started = time.perf_counter()
+        try:
+            llm = self._invoke_state_llm(
+                session_state=session_state,
+                player_text=player_text,
+                hr_reply_raw=hr_reply_raw,
+                base_turn_result=base_result,
+            )
+        except Exception as exc:
+            logger.exception(
+                "LLM_STATE_FAILED session_id=%s scene_id=%s round=%s error=%s",
+                session_state.session_id,
+                session_state.scene_id,
+                session_state.round_index,
+                type(exc).__name__,
+            )
+            return self._safe_default_decision(
+                session_state=session_state,
+                player_text=player_text,
+                traces=traces,
+                hr_reply_override=hr_reply_raw,
+            )
+        elapsed_ms = int((time.perf_counter() - call_started) * 1000)
+        next_phase_hint_raw = str(llm.get("next_phase_hint", "text"))
+        inferred_strategy = str(llm.get("inferred_strategy", "probe"))
+        hr_patience_delta = self._clamp_int(llm.get("delta_hr_patience", 0), -15, 10)
+        info_exposure_delta = self._clamp_int(llm.get("delta_info_exposure", 0), -12, 18)
+        trap_count_delta = self._clamp_int(llm.get("delta_trap_count", 0), 0, 1)
+        salary_offer_delta = self._clamp_int(llm.get("delta_salary_offer", 0), 0, 5000)
+        equity_ratio_delta = self._clamp_float(llm.get("delta_equity_ratio", 0.0), 0.0, 0.2)
+        law_citation_delta = self._clamp_int(llm.get("delta_law_citation_count", 0), 0, 1)
+        misjudge_delta = self._clamp_int(llm.get("delta_misjudge_count", 0), 0, 1)
+        trap_id = self._safe_trap_id(llm.get("trap_id"))
+        should_end = bool(llm.get("should_end", False))
+        decision_reason = str(llm.get("reason", "agent_decision"))
+
         logger.info(
-            "LLM_STATE_START session_id=%s scene_id=%s round=%s text_len=%s",
+            "LLM_STATE_OK session_id=%s scene_id=%s round=%s elapsed_ms=%s next_phase_hint=%s strategy=%s",
             session_state.session_id,
             session_state.scene_id,
             session_state.round_index,
-            len(text),
+            elapsed_ms,
+            next_phase_hint_raw,
+            inferred_strategy,
+        )
+
+        return AgentTurnDecision(
+            hr_reply=self._address_player(session_state.user_name, clamp_hr_reply(hr_reply_raw)),
+            inferred_strategy=inferred_strategy,
+            delta=TurnDelta(
+                hr_patience=hr_patience_delta,
+                info_exposure=info_exposure_delta,
+                trap_count=trap_count_delta,
+                salary_offer=salary_offer_delta,
+                equity_ratio=equity_ratio_delta,
+                law_citation_count=law_citation_delta,
+                misjudge_count=misjudge_delta,
+            ),
+            trap_id=trap_id,
+            next_phase_hint=self._safe_phase(next_phase_hint_raw),
+            should_end=should_end,
+            reason=decision_reason,
+            tool_trace=traces,
+            player_text_used=player_text,
+        )
+
+    def _decide(self, *, session_state: SessionState, player_text: str, traces: list[AgentToolCallTrace]) -> AgentTurnDecision:
+        base_result = self._base_turn_result(session_state)
+        call_started = time.perf_counter()
+        logger.info(
+            "LLM_CALL_START session_id=%s scene_id=%s round=%s text_len=%s tool_traces=%s",
+            session_state.session_id,
+            session_state.scene_id,
+            session_state.round_index,
+            len(player_text),
+            len(traces),
         )
         try:
-            state_llm = self._invoke_state_llm(
+            llm = self._invoke_langchain_llm(
                 session_state=session_state,
-                player_text=text,
-                hr_reply=hr_reply_raw,
+                player_text=player_text,
                 base_turn_result=base_result,
             )
         except Exception as exc:
             elapsed_ms = int((time.perf_counter() - call_started) * 1000)
             logger.exception(
-                "LLM_STATE_FAILED session_id=%s scene_id=%s round=%s elapsed_ms=%s error=%s",
+                "LLM_CALL_FAILED session_id=%s scene_id=%s round=%s elapsed_ms=%s error=%s",
                 session_state.session_id,
                 session_state.scene_id,
                 session_state.round_index,
                 elapsed_ms,
                 type(exc).__name__,
             )
-            return self._safe_default_decision(session_state=session_state, player_text=text, traces=traces)
+            return self._safe_default_decision(session_state=session_state, player_text=player_text, traces=traces)
         elapsed_ms = int((time.perf_counter() - call_started) * 1000)
-        next_phase_hint_raw = str(state_llm.get("next_phase_hint", "text"))
-        inferred_strategy = str(state_llm.get("inferred_strategy", "probe"))
-        hr_patience_delta = self._clamp_int(state_llm.get("delta_hr_patience", 0), -15, 10)
-        info_exposure_delta = self._clamp_int(state_llm.get("delta_info_exposure", 0), -12, 18)
-        trap_count_delta = self._clamp_int(state_llm.get("delta_trap_count", 0), 0, 1)
-        salary_offer_delta = self._clamp_int(state_llm.get("delta_salary_offer", 0), 0, 5000)
-        equity_ratio_delta = self._clamp_float(state_llm.get("delta_equity_ratio", 0.0), 0.0, 0.2)
-        law_citation_delta = self._clamp_int(state_llm.get("delta_law_citation_count", 0), 0, 1)
-        misjudge_delta = self._clamp_int(state_llm.get("delta_misjudge_count", 0), 0, 1)
-        trap_id = self._safe_trap_id(state_llm.get("trap_id"))
-        should_end = bool(state_llm.get("should_end", False))
-        decision_reason = str(state_llm.get("reason", "agent_decision"))
+        next_phase_hint_raw = str(llm.get("next_phase_hint", "text"))
+        inferred_strategy = str(llm.get("inferred_strategy", "probe"))
+        hr_reply_raw = clamp_hr_reply(
+            str(llm.get("hr_reply", base_result["hr_reply"])) or str(base_result["hr_reply"])
+        )
+        hr_patience_delta = self._clamp_int(llm.get("delta_hr_patience", 0), -15, 10)
+        info_exposure_delta = self._clamp_int(llm.get("delta_info_exposure", 0), -12, 18)
+        trap_count_delta = self._clamp_int(llm.get("delta_trap_count", 0), 0, 1)
+        salary_offer_delta = self._clamp_int(llm.get("delta_salary_offer", 0), 0, 5000)
+        equity_ratio_delta = self._clamp_float(llm.get("delta_equity_ratio", 0.0), 0.0, 0.2)
+        law_citation_delta = self._clamp_int(llm.get("delta_law_citation_count", 0), 0, 1)
+        misjudge_delta = self._clamp_int(llm.get("delta_misjudge_count", 0), 0, 1)
+        trap_id = self._safe_trap_id(llm.get("trap_id"))
+        should_end = bool(llm.get("should_end", False))
+        decision_reason = str(llm.get("reason", "agent_decision"))
 
         logger.info(
-            "LLM_STATE_OK session_id=%s scene_id=%s round=%s elapsed_ms=%s next_phase_hint=%s strategy=%s",
+            "LLM_CALL_OK session_id=%s scene_id=%s round=%s elapsed_ms=%s next_phase_hint=%s strategy=%s",
             session_state.session_id,
             session_state.scene_id,
             session_state.round_index,
@@ -146,33 +248,105 @@ class HrNegotiationAgent:
             should_end=should_end,
             reason=decision_reason,
             tool_trace=traces,
-            player_text_used=text,
+            player_text_used=player_text,
         )
+
+    def _stream_langchain_reply(
+        self,
+        *,
+        session_state: SessionState,
+        player_text: str,
+    ):
+        system_prompt = self._load_scene_prompt(
+            session_state.scene_id,
+            session_state.hr_personality_id,
+        ) + REPLY_STREAM_SUFFIX
+        user_payload = build_agent_reply_payload(
+            session_state=session_state,
+            player_text=player_text,
+        )
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=json.dumps(user_payload, ensure_ascii=False)),
+        ]
+        llm = self._get_llm()
+        try:
+            yield from self._iter_llm_text_chunks(llm, messages)
+        except (NotFoundError, BadRequestError) as exc:
+            if not self._is_model_not_found(exc):
+                raise
+            if self._active_model == DEFAULT_MODEL:
+                raise
+            logger.warning(
+                "LLM_MODEL_FALLBACK from=%s to=%s reason=model_not_found",
+                self._active_model,
+                DEFAULT_MODEL,
+            )
+            llm = self._build_llm(model=DEFAULT_MODEL, temperature=0.1)
+            self._llm = llm
+            self._active_model = DEFAULT_MODEL
+            yield from self._iter_llm_text_chunks(llm, messages)
+
+    @staticmethod
+    def _iter_llm_text_chunks(llm: ChatOpenAI, messages: list):
+        for chunk in llm.stream(messages):
+            text = HrNegotiationAgent._extract_chunk_text(chunk.content)
+            if text:
+                yield text
+
+    @staticmethod
+    def _extract_chunk_text(content: object) -> str:
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: list[str] = []
+            for block in content:
+                if isinstance(block, str):
+                    parts.append(block)
+                elif isinstance(block, dict):
+                    text = block.get("text")
+                    if isinstance(text, str):
+                        parts.append(text)
+            return "".join(parts)
+        if content is None:
+            return ""
+        return str(content)
 
     def _invoke_state_llm(
         self,
         *,
         session_state: SessionState,
         player_text: str,
-        hr_reply: str,
+        hr_reply_raw: str,
         base_turn_result: dict[str, Any],
     ) -> dict[str, Any]:
         system_prompt = self._load_scene_prompt(
             session_state.scene_id,
             session_state.hr_personality_id,
-            suffix=STATE_JSON_SUFFIX,
         )
         user_payload = build_agent_state_payload(
             session_state=session_state,
             player_text=player_text,
-            hr_reply=hr_reply,
+            hr_reply=hr_reply_raw,
             base_turn_result=base_turn_result,
         )
         messages = [
             SystemMessage(content=system_prompt),
             HumanMessage(content=json.dumps(user_payload, ensure_ascii=False)),
         ]
-        content = self._invoke_llm_content(messages)
+        llm = self._get_llm()
+        try:
+            response = llm.invoke(messages)
+        except (NotFoundError, BadRequestError) as exc:
+            if not self._is_model_not_found(exc):
+                raise
+            if self._active_model == DEFAULT_MODEL:
+                raise
+            llm = self._build_llm(model=DEFAULT_MODEL, temperature=0.1)
+            self._llm = llm
+            self._active_model = DEFAULT_MODEL
+            response = llm.invoke(messages)
+        content = response.content if isinstance(response.content, str) else str(response.content)
         parsed = self._parse_json_content(content)
         return {
             "inferred_strategy": str(parsed.get("inferred_strategy", "probe")),
@@ -214,8 +388,24 @@ class HrNegotiationAgent:
         ]
         llm = self._get_llm()
         t3 = time.perf_counter()
-        content = self._invoke_llm_content(messages)
+        try:
+            response = llm.invoke(messages)
+        except (NotFoundError, BadRequestError) as exc:
+            if not self._is_model_not_found(exc):
+                raise
+            if self._active_model == DEFAULT_MODEL:
+                raise
+            logger.warning(
+                "LLM_MODEL_FALLBACK from=%s to=%s reason=model_not_found",
+                self._active_model,
+                DEFAULT_MODEL,
+            )
+            llm = self._build_llm(model=DEFAULT_MODEL, temperature=0.1)
+            self._llm = llm
+            self._active_model = DEFAULT_MODEL
+            response = llm.invoke(messages)
         t4 = time.perf_counter()
+        content = response.content if isinstance(response.content, str) else str(response.content)
         parsed = self._parse_json_content(content)
         t5 = time.perf_counter()
         if llm_latency_enabled():
@@ -246,49 +436,6 @@ class HrNegotiationAgent:
             "reason": str(parsed.get("reason", "")),
         }
 
-    def _invoke_llm_content(self, messages: list[SystemMessage | HumanMessage]) -> str:
-        llm = self._get_llm()
-        try:
-            response = llm.invoke(messages)
-        except (NotFoundError, BadRequestError) as exc:
-            if not self._is_model_not_found(exc):
-                raise
-            if self._active_model == DEFAULT_MODEL:
-                raise
-            logger.warning(
-                "LLM_MODEL_FALLBACK from=%s to=%s reason=model_not_found",
-                self._active_model,
-                DEFAULT_MODEL,
-            )
-            llm = self._build_llm(model=DEFAULT_MODEL, temperature=0.1)
-            self._llm = llm
-            self._active_model = DEFAULT_MODEL
-            response = llm.invoke(messages)
-        return response.content if isinstance(response.content, str) else str(response.content)
-
-    def _stream_llm_text(self, messages: list[SystemMessage | HumanMessage]) -> Iterator[str]:
-        llm = self._get_llm()
-        try:
-            stream = llm.stream(messages)
-        except (NotFoundError, BadRequestError) as exc:
-            if not self._is_model_not_found(exc):
-                raise
-            if self._active_model == DEFAULT_MODEL:
-                raise
-            logger.warning(
-                "LLM_MODEL_FALLBACK from=%s to=%s reason=model_not_found",
-                self._active_model,
-                DEFAULT_MODEL,
-            )
-            llm = self._build_llm(model=DEFAULT_MODEL, temperature=0.1)
-            self._llm = llm
-            self._active_model = DEFAULT_MODEL
-            stream = llm.stream(messages)
-        for chunk in stream:
-            text = chunk.content if isinstance(chunk.content, str) else str(chunk.content or "")
-            if text:
-                yield text
-
     @staticmethod
     def _parse_json_content(content: str) -> dict[str, Any]:
         text = content.strip()
@@ -302,8 +449,6 @@ class HrNegotiationAgent:
         self,
         scene_id: str,
         personality_id: str | None = None,
-        *,
-        suffix: str = "",
     ) -> str:
         base_file = PROMPT_DIR / DEFAULT_PROMPT_FILE
         if base_file.exists():
@@ -320,7 +465,7 @@ class HrNegotiationAgent:
                 "delta_salary_offer[0,5000], delta_equity_ratio[0,0.2], delta_law_citation_count[0,1], delta_misjudge_count[0,1]。"
             )
         return build_system_prompt(
-            base_prompt=base_prompt + suffix,
+            base_prompt=base_prompt,
             scene_id=scene_id,
             personality_id=personality_id,
         )
@@ -335,13 +480,17 @@ class HrNegotiationAgent:
     def _build_llm(self, model: str, *, temperature: float) -> ChatOpenAI:
         cfg = self._llm_config or load_config_from_env()
         self._llm_config = cfg
-        return ChatOpenAI(
-            api_key=cfg.api_key,
-            base_url=cfg.base_url,
-            model=model,
-            temperature=temperature,
-            timeout=cfg.timeout,
-        )
+        extra = qwen_disable_thinking_extra(model)
+        kwargs: dict[str, Any] = {
+            "api_key": cfg.api_key,
+            "base_url": cfg.base_url,
+            "model": model,
+            "temperature": temperature,
+            "timeout": cfg.timeout,
+        }
+        if extra:
+            kwargs["model_kwargs"] = {"extra_body": extra}
+        return ChatOpenAI(**kwargs)
 
     @staticmethod
     def _is_model_not_found(exc: Exception) -> bool:
@@ -395,10 +544,16 @@ class HrNegotiationAgent:
         }
 
     def _safe_default_decision(
-        self, *, session_state: SessionState, player_text: str, traces: list[AgentToolCallTrace]
+        self,
+        *,
+        session_state: SessionState,
+        player_text: str,
+        traces: list[AgentToolCallTrace],
+        hr_reply_override: str | None = None,
     ) -> AgentTurnDecision:
+        fallback_reply = hr_reply_override or session_state.scene_context.tone_map["probe"]
         return AgentTurnDecision(
-            hr_reply=self._address_player(session_state.user_name, session_state.scene_context.tone_map["probe"]),
+            hr_reply=self._address_player(session_state.user_name, fallback_reply),
             inferred_strategy="probe",
             delta=TurnDelta(hr_patience=-1, info_exposure=2, trap_count=0),
             trap_id=None,

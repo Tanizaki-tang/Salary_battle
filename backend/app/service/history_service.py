@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
+from app.prompt.dialogue_style import SALARY_UNIT_RULES
+from app.prompt.salary_format import enrich_negotiation_salary_fields
 from app.shared_types.game_types import ConversationMessage, SessionState
 
 Role = Literal["hr", "player", "system"]
@@ -83,7 +85,14 @@ def extract_negotiation_state(session_state: SessionState | dict[str, Any]) -> d
     state = _as_session_state(session_state)
     payload = state.model_dump(exclude=_SESSION_STATIC_KEYS)
     payload.pop("conversation_history", None)
-    return payload
+    anchor = state.scene_context.salary_anchor
+    payload["salary_anchor"] = {
+        "legal_floor": anchor.legal_floor,
+        "market_fair": anchor.market_fair,
+        "ideal_target": anchor.ideal_target,
+        "hr_initial_offer": anchor.hr_initial_offer,
+    }
+    return enrich_negotiation_salary_fields(payload)
 
 
 def build_agent_turn_payload(
@@ -105,6 +114,7 @@ def build_agent_turn_payload(
             "确保 hr_reply 与近期 HR 话术明显不同，再输出 JSON。"
             "若 recent_hr_replies 已明确录用意愿（offer/决定录用/欢迎加入等），"
             "禁止在本轮 hr_reply 或 should_end/reason 中输出未录用、谈崩、收回 offer 等矛盾结果。"
+            f"{SALARY_UNIT_RULES}"
         ),
         "player_text": player_text.strip(),
         "history": history,
@@ -130,6 +140,7 @@ def build_agent_reply_payload(
             "场景与人格已在 system prompt 中。"
             "阅读 history.recent_hr_replies，确保本轮口语回复与近期 HR 话术明显不同。"
             "只输出你要对候选人说的话，2-4 句，口语化。"
+            f"{SALARY_UNIT_RULES}"
         ),
         "player_text": player_text.strip(),
         "history": history,

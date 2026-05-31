@@ -76,14 +76,44 @@
             </div>
 
             <p v-if="result.summary" class="summary-text">{{ result.summary }}</p>
+
+            <div v-if="transcript.length" class="transcript-section">
+              <button type="button" class="transcript-toggle" @click="showTranscript = !showTranscript">
+                💬 {{ showTranscript ? "收起对话记录" : "查看对话记录" }}
+                <span class="transcript-count">（{{ transcript.length }} 条）</span>
+              </button>
+              <div v-show="showTranscript" class="transcript-panel">
+                <div
+                  v-for="(msg, idx) in transcript"
+                  :key="`${msg.role}-${idx}-${msg.content.slice(0, 12)}`"
+                  class="transcript-row"
+                  :class="msg.role === 'hr' ? 'is-hr' : msg.role === 'player' ? 'is-me' : 'is-system'"
+                >
+                  <template v-if="msg.role === 'system'">
+                    <div class="transcript-system">{{ msg.content }}</div>
+                  </template>
+                  <template v-else>
+                    <img
+                      class="transcript-avatar"
+                      :src="msg.role === 'hr' ? bossAvatarUrl : playerAvatarUrl"
+                      :alt="msg.role === 'hr' ? 'HR' : '我'"
+                    />
+                    <div class="transcript-bubble-wrap">
+                      <div class="transcript-role">{{ msg.role === "hr" ? hrLabel : playerLabel }}</div>
+                      <div class="transcript-bubble">{{ msg.content }}</div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </div>
           </template>
 
           <div v-else class="result-loading">暂无结算数据</div>
         </div>
 
         <div class="result-actions">
-          <button class="btn-primary" type="button" @click="$router.push('/')">↺ 再来一局</button>
-          <button class="btn-secondary" type="button" @click="$router.push('/')">⌂ 返回首页</button>
+          <button class="btn-primary" type="button" @click="goHome">↺ 再来一局</button>
+          <button class="btn-secondary" type="button" @click="goHome">⌂ 返回首页</button>
         </div>
 
         <p v-if="error" class="error">{{ error }}</p>
@@ -98,11 +128,18 @@ import { useRoute, useRouter } from "vue-router";
 import { runtimeAdapter } from "../runtime";
 import { saveLocalLeaderboardEntry } from "../runtime/leaderboard";
 import type { SettleResultView } from "../runtime/battle_runtime_adapter";
+import { bossAvatarUrl, playerAvatarUrl } from "../assets/avatars";
 import {
   hireVerdictLabel,
   resolveTextHireVerdict,
   type HireVerdict,
 } from "../utils/hire_verdict";
+import {
+  clearBattleTranscript,
+  loadBattleTranscript,
+  normalizeConversationHistory,
+  type TranscriptMessage,
+} from "../utils/battle_transcript";
 
 const route = useRoute();
 const router = useRouter();
@@ -111,19 +148,61 @@ const loading = ref(false);
 const error = ref("");
 const result = ref<SettleResultView | null>(null);
 const hireVerdict = ref<HireVerdict>("hired");
+const transcript = ref<TranscriptMessage[]>([]);
+const showTranscript = ref(false);
+const playerLabel = ref("我");
+const hrLabel = ref("HR");
+
+function persistTranscriptFromSession(raw: string | null) {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as {
+      user_name?: string;
+      conversation_history?: Array<{ role?: string; content?: string; round_index?: number }>;
+      hr_personality_id?: string;
+    };
+    if (parsed.user_name?.trim()) {
+      playerLabel.value = parsed.user_name.trim();
+    }
+    return normalizeConversationHistory(parsed.conversation_history);
+  } catch {
+    return [];
+  }
+}
+
+function applyHrLabelFromStorage() {
+  const raw = sessionStorage.getItem("hrPersonalityMeta");
+  if (!raw) return;
+  try {
+    const meta = JSON.parse(raw) as { name?: string; emoji?: string };
+    if (meta.name) hrLabel.value = `${meta.emoji || "😊"} ${meta.name}`;
+  } catch {
+    /* ignore */
+  }
+}
 
 async function loadResult() {
   loading.value = true;
   error.value = "";
   let sessionPatience: number | null = null;
   let sessionUserName = "候选人";
+  let historyFromCache: TranscriptMessage[] = loadBattleTranscript(sessionId.value);
+  applyHrLabelFromStorage();
   const cachedSession = sessionStorage.getItem("currentSession");
   if (cachedSession) {
     try {
-      const parsed = JSON.parse(cachedSession) as { hr_patience?: number; user_name?: string };
+      const parsed = JSON.parse(cachedSession) as {
+        hr_patience?: number;
+        user_name?: string;
+        conversation_history?: Array<{ role?: string; content?: string; round_index?: number }>;
+      };
       if (typeof parsed.hr_patience === "number") sessionPatience = parsed.hr_patience;
       if (typeof parsed.user_name === "string" && parsed.user_name.trim()) {
         sessionUserName = parsed.user_name.trim();
+        playerLabel.value = sessionUserName;
+      }
+      if (!historyFromCache.length) {
+        historyFromCache = normalizeConversationHistory(parsed.conversation_history);
       }
     } catch {
       /* ignore */
@@ -133,6 +212,12 @@ async function loadResult() {
     const data = await runtimeAdapter.settle(sessionId.value);
     result.value = data.result;
     hireVerdict.value = resolveTextHireVerdict(data.result, sessionPatience);
+    const historyFromSettle = normalizeConversationHistory(data.conversation_history);
+    transcript.value = historyFromCache.length
+      ? historyFromCache
+      : historyFromSettle.length
+        ? historyFromSettle
+        : persistTranscriptFromSession(cachedSession);
     saveLocalLeaderboardEntry({
       user_name: sessionUserName,
       final_score: data.result.final_score,
@@ -147,6 +232,11 @@ async function loadResult() {
   } finally {
     loading.value = false;
   }
+}
+
+function goHome() {
+  clearBattleTranscript(sessionId.value);
+  router.push("/");
 }
 
 const gradeTitle = computed(() => {
@@ -431,5 +521,105 @@ if (!sessionId.value) {
   color: #ff4757;
   font-size: 12px;
   padding: 0 16px 8px;
+}
+
+.transcript-section {
+  margin: 8px 0 12px;
+}
+
+.transcript-toggle {
+  width: 100%;
+  border: 1px solid #dce9e6;
+  background: #fff;
+  color: #007a68;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+}
+
+.transcript-count {
+  font-weight: 500;
+  color: #888;
+}
+
+.transcript-panel {
+  margin-top: 10px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 10px;
+  border-radius: 12px;
+  background: #f0f4f3;
+  border: 1px solid #e3ebe8;
+}
+
+.transcript-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.transcript-row.is-me {
+  flex-direction: row-reverse;
+}
+
+.transcript-row.is-system {
+  justify-content: center;
+}
+
+.transcript-system {
+  font-size: 11px;
+  color: #888;
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 10px;
+  padding: 4px 10px;
+  max-width: 92%;
+  text-align: center;
+  line-height: 1.45;
+}
+
+.transcript-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.transcript-bubble-wrap {
+  max-width: 78%;
+}
+
+.transcript-row.is-me .transcript-bubble-wrap {
+  align-items: flex-end;
+  display: flex;
+  flex-direction: column;
+}
+
+.transcript-role {
+  font-size: 10px;
+  color: #888;
+  margin-bottom: 2px;
+}
+
+.transcript-bubble {
+  background: #fff;
+  border-radius: 12px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #333;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  word-break: break-word;
+}
+
+.transcript-row.is-me .transcript-bubble {
+  background: #dcf8c6;
+}
+
+.transcript-row.is-hr .transcript-bubble {
+  background: #fff;
 }
 </style>

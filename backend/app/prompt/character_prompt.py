@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from app.prompt.dialogue_style import DIALOGUE_LENGTH_RULES, HIRE_OUTCOME_CONSISTENCY_RULES
+from app.prompt.dialogue_style import DIALOGUE_LENGTH_RULES, HIRE_OUTCOME_CONSISTENCY_RULES, SALARY_UNIT_RULES
 from app.prompt.hr_personality import get_personality_prompt
 from app.prompt.scenario_loader import load_hr_system_prompt
 from app.prompt.traps_prompt import get_traps_prompt
@@ -63,6 +63,7 @@ def build_system_prompt(base_prompt: str, scene_id: str | None, personality_id: 
         traps_prompt,
         base_prompt,
         DIALOGUE_LENGTH_RULES,
+        SALARY_UNIT_RULES,
         HIRE_OUTCOME_CONSISTENCY_RULES,
     ]
     return "\n\n".join(p for p in parts if p.strip())

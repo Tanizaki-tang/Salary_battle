@@ -65,6 +65,7 @@ def create_session(payload: dict) -> ApiResponse:
         personality_id=hr_personality_id,
         scene_opening_line=scene_context.opening_line,
         salary_offer=scene_context.salary_anchor.hr_initial_offer,
+        company_name="灵创科技",
     )
     opening_with_name = opening if opening.startswith(f"{user_name}，") else f"{user_name}，{opening}"
     session = SessionState(
@@ -105,44 +106,50 @@ def create_session(payload: dict) -> ApiResponse:
 
 
 @router.post("/sessions/{session_id}/text-turn")
-def text_turn(session_id: str, payload: TextTurnPayload) -> StreamingResponse:
+def text_turn(session_id: str, payload: TextTurnPayload) -> ApiResponse:
     session = SESSIONS.get(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="session not found")
     started = time.perf_counter()
+    next_state, turn_result, flow = orchestrator.run_text_turn(session, payload)
+    SESSIONS[session_id] = next_state
+    if llm_latency_enabled():
+        logger.info(
+            "LATENCY_API_TEXT_TURN session_id=%s round=%s total_ms=%.1f",
+            session_id,
+            session.round_index,
+            (time.perf_counter() - started) * 1000,
+        )
+    return ApiResponse(data={"result": turn_result.model_dump(), "session": next_state.model_dump(), "flow": flow.model_dump()})
+
+
+@router.post("/sessions/{session_id}/text-turn/stream")
+def text_turn_stream(session_id: str, payload: TextTurnPayload) -> StreamingResponse:
+    session = SESSIONS.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="session not found")
 
     def generate():
         try:
-            for event_type, event_data in orchestrator.run_text_turn_stream(session, payload):
-                if event_type == "token":
-                    yield json.dumps({"type": "token", "text": event_data}, ensure_ascii=False) + "\n"
-                    continue
-                if event_type == "done":
-                    next_state = event_data["session_state"]
+            for event in orchestrator.iter_text_turn(session, payload):
+                if event.get("event") == "done":
+                    next_state = SessionState.model_validate(event["session"])
                     SESSIONS[session_id] = next_state
-                    if llm_latency_enabled():
-                        logger.info(
-                            "LATENCY_API_TEXT_TURN session_id=%s round=%s total_ms=%.1f",
-                            session_id,
-                            session.round_index,
-                            (time.perf_counter() - started) * 1000,
-                        )
-                    yield json.dumps(
-                        {
-                            "type": "done",
-                            "data": {
-                                "result": event_data["result"],
-                                "session": event_data["session"],
-                                "flow": event_data["flow"],
-                            },
-                        },
-                        ensure_ascii=False,
-                    ) + "\n"
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
         except Exception as exc:
-            logger.exception("TEXT_TURN_STREAM_FAILED session_id=%s error=%s", session_id, type(exc).__name__)
-            yield json.dumps({"type": "error", "message": str(exc)}, ensure_ascii=False) + "\n"
+            logger.exception("TEXT_TURN_STREAM_FAILED session_id=%s", session_id)
+            err = {"event": "error", "message": str(exc)}
+            yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n"
 
-    return StreamingResponse(generate(), media_type="application/x-ndjson")
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/sessions/{session_id}/settle")
@@ -153,4 +160,11 @@ def settle(session_id: str) -> ApiResponse:
     settle_result, persist_result = orchestrator.settle_and_persist(session)
     session.status = "settled"
     SESSIONS[session_id] = session
-    return ApiResponse(data={"result": settle_result.model_dump(), "persist": persist_result.model_dump()})
+    return ApiResponse(
+        data={
+            "result": settle_result.model_dump(),
+            "persist": persist_result.model_dump(),
+            "conversation_history": [m.model_dump() for m in session.conversation_history],
+            "user_name": session.user_name,
+        }
+    )

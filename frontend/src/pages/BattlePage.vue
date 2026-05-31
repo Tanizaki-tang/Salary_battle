@@ -235,6 +235,7 @@ import { useBattleTurnCountdown } from "../composables/useBattleTurnCountdown";
 import { useBattleViewport } from "../composables/useBattleViewport";
 import { runtimeAdapter } from "../runtime";
 import type { SessionState } from "../runtime/battle_runtime_adapter";
+import { saveBattleTranscript, type TranscriptMessage } from "../utils/battle_transcript";
 
 const route = useRoute();
 const router = useRouter();
@@ -257,35 +258,28 @@ type BattleMessage = {
 };
 
 let messageSeq = 0;
-let streamingHrMessageId: number | null = null;
 
 function pushMessage(msg: Omit<BattleMessage, "id">) {
   messages.value.push({ id: ++messageSeq, ...msg });
 }
 
-function appendStreamingHrToken(chunk: string) {
-  if (!chunk) return;
-  if (streamingHrMessageId === null) {
-    pushMessage({ role: "hr", text: chunk, bubbleEntrance: "fade" });
-    streamingHrMessageId = messageSeq;
-    waitingHr.value = false;
-    return;
-  }
-  const msg = messages.value.find((item) => item.id === streamingHrMessageId);
-  if (msg) msg.text += chunk;
+function snapshotTranscript(): TranscriptMessage[] {
+  return messages.value
+    .filter((m) => m.text.trim())
+    .map((m) => ({
+      role:
+        m.type === "system" || m.role === "system"
+          ? "system"
+          : m.role === "hr"
+            ? "hr"
+            : "player",
+      content: m.text.trim(),
+    }));
 }
 
-function finalizeStreamingHrMessage(finalText: string, bubbleEntrance?: BubbleEntrance) {
-  if (streamingHrMessageId === null) {
-    pushMessage({ role: "hr", text: finalText, bubbleEntrance: bubbleEntrance ?? "fade" });
-  } else {
-    const msg = messages.value.find((item) => item.id === streamingHrMessageId);
-    if (msg) {
-      msg.text = finalText;
-      if (bubbleEntrance) msg.bubbleEntrance = bubbleEntrance;
-    }
-  }
-  streamingHrMessageId = null;
+function goToResultPage() {
+  saveBattleTranscript(sessionId.value, snapshotTranscript());
+  router.push(`/result/${sessionId.value}`);
 }
 
 const messages = ref<BattleMessage[]>([]);
@@ -664,9 +658,11 @@ async function runTurn(payload: {
   waitingHr.value = true;
   pauseTurnCountdown();
   error.value = "";
+
+  let streamingHrId: number | null = null;
+
   try {
-    streamingHrMessageId = null;
-    const data = await runtimeAdapter.textTurn(
+    const data = await runtimeAdapter.textTurnStream(
       sessionId.value,
       {
         strategy: payload.strategy as "strong_push" | "probe" | "concede" | "counter_pressure" | undefined,
@@ -674,21 +670,36 @@ async function runTurn(payload: {
       },
       {
         onToken(chunk) {
-          appendStreamingHrToken(chunk);
-          void scrollChatToBottom();
+          if (streamingHrId === null) {
+            waitingHr.value = false;
+            pushMessage({ role: "hr", text: chunk, bubbleEntrance: "fade" });
+            streamingHrId = messageSeq;
+          } else {
+            const msg = messages.value.find((m) => m.id === streamingHrId);
+            if (msg) msg.text += chunk;
+          }
+          scrollChatToBottom();
         },
       },
     );
+
+    if (streamingHrId !== null) {
+      const msg = messages.value.find((m) => m.id === streamingHrId);
+      if (msg) msg.text = data.result.hr_reply;
+    } else {
+      pushMessage({
+        role: "hr",
+        text: data.result.hr_reply,
+        bubbleEntrance: normalizeBubbleEntrance(data.result.hr_bubble_entrance, "fade"),
+      });
+    }
+
     if (data.result.player_bubble_entrance && latestPlayerSpeech.value) {
       latestPlayerSpeech.value.bubbleEntrance = normalizeBubbleEntrance(
         data.result.player_bubble_entrance,
         latestPlayerSpeech.value.bubbleEntrance ?? "slide",
       );
     }
-    finalizeStreamingHrMessage(
-      data.result.hr_reply,
-      normalizeBubbleEntrance(data.result.hr_bubble_entrance, "fade"),
-    );
     if (data.flow?.reason) {
       pushMessage({ role: "system", text: `💡 ${data.flow.reason}`, type: "system" });
     }
@@ -704,10 +715,9 @@ async function runTurn(payload: {
     }
 
     if (gameEnding) {
-      router.push(`/result/${sessionId.value}`);
+      goToResultPage();
     }
   } catch (e) {
-    streamingHrMessageId = null;
     error.value = `回合请求失败：${String(e)}`;
   } finally {
     waitingHr.value = false;

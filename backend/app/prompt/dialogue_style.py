@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 
+from app.prompt.salary_format import fix_misformatted_salary_k
+
 # 日常 IM/谈薪聊天口径（中文按字符计）
 HR_REPLY_MAX_CHARS = 80
 HR_REPLY_HARD_MAX_CHARS = 120
@@ -14,6 +16,12 @@ DIALOGUE_LENGTH_RULES = """## 对话字数约束（必须严格遵守）
 - HR 提问/情境：1~2 句，不超过 60 字。
 - 玩家回复（若有）：每条单句，不超过 40 字。
 - 禁止：长段落、分点列举、「首先/其次/综上」、Markdown、官方腔套话。"""
+
+SALARY_UNIT_RULES = """## 薪资口径（必须严格遵守）
+- negotiation_state 里 current_salary_offer 等单位是「元/月」（如 13000 表示月薪 13K）。
+- 对候选人说话时用 K 表示月薪：13K、15K、17.5K；禁止写 13000K、15000K 这类错误。
+- 可以说「13000元/月」或「13K」，但不要混用导致数量级错误。
+- delta_salary_offer 单位是元（如 500 表示涨 500 元，不是 500K）。"""
 
 HIRE_OUTCOME_CONSISTENCY_RULES = """## 录用/未录用结果一致性（必须严格遵守）
 - 游戏结算页会展示「录用」或「未录用」。你的 hr_reply、should_end、reason 必须与当前谈判走向一致，不得自相矛盾。
@@ -47,11 +55,13 @@ def clamp_chat_text(text: str, max_chars: int, *, hard_max: int | None = None) -
 
 
 def clamp_hr_reply(text: str) -> str:
-    return clamp_chat_text(text, HR_REPLY_MAX_CHARS, hard_max=HR_REPLY_HARD_MAX_CHARS)
+    normalized = fix_misformatted_salary_k(text)
+    return clamp_chat_text(normalized, HR_REPLY_MAX_CHARS, hard_max=HR_REPLY_HARD_MAX_CHARS)
 
 
 def clamp_hr_question(text: str) -> str:
-    return clamp_chat_text(text, HR_QUESTION_MAX_CHARS, hard_max=HR_QUESTION_MAX_CHARS + 20)
+    normalized = fix_misformatted_salary_k(text)
+    return clamp_chat_text(normalized, HR_QUESTION_MAX_CHARS, hard_max=HR_QUESTION_MAX_CHARS + 20)
 
 
 def clamp_player_reply(text: str) -> str:

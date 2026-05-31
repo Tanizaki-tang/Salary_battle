@@ -1,24 +1,24 @@
 /**
  * 文字阶段 hr_patience（0–100）低于阈值时，经预警过场后进入卡牌阶段。
  * 阈值须低于各性格开场满意度（scene 基准 80 + patience_bias），避免一进场就触发。
- * 性格差：bias 越低 → 阈值相对越高 → 谈判中更早进卡牌，但开场仍留出缓冲。
+ * 阈值越高 → 越早进卡牌（需掉的耐心越少）。
  */
-export const CARD_MODE_MIN_TEXT_ROUNDS = 2;
+export const CARD_MODE_MIN_TEXT_ROUNDS = 1;
 
 export const HR_PATIENCE_CARD_MODE_THRESHOLDS: Record<string, number> = {
-  /** 开场约 62（80−18），需再掉 ~10 才进卡牌 */
-  hr_aggressive: 52,
-  /** 开场约 78 */
-  hr_smiling_tiger: 48,
+  /** 开场约 62（80−18），再掉 ~4 即可进卡牌 */
+  hr_aggressive: 58,
+  /** 开场约 78，再掉 ~10 */
+  hr_smiling_tiger: 68,
   /** 开场约 85 */
-  hr_robot: 42,
+  hr_robot: 72,
   /** 开场约 86 */
-  hr_honest: 38,
+  hr_honest: 70,
   /** 开场约 88 */
-  hr_newbie: 35,
+  hr_newbie: 72,
 };
 
-export const DEFAULT_CARD_MODE_THRESHOLD = 48;
+export const DEFAULT_CARD_MODE_THRESHOLD = 68;
 
 /** 距离阈值多少以内显示「耐心告急」提示 */
 export const CARD_MODE_WARNING_MARGIN = 10;
@@ -62,5 +62,5 @@ export function cardModeApproachingHint(hrPatience: number, threshold: number): 
 }
 
 export function cardModeThresholdHint(threshold: number): string {
-  return `卡牌决战阈值：满意度 < ${threshold}（至少聊 ${CARD_MODE_MIN_TEXT_ROUNDS - 1} 轮后生效）`;
+  return `卡牌决战阈值：HR 耐心 < ${threshold}（至少聊 ${CARD_MODE_MIN_TEXT_ROUNDS} 轮后生效）`;
 }

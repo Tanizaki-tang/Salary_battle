@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-import re
 import random
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
+
+from app.prompt.salary_format import apply_opening_placeholders, format_salary_k
 
 DEFAULT_PERSONALITY_ID: Final[str] = "hr_smiling_tiger"
 PERSONALITIES_DIR = Path(__file__).resolve().parents[3] / "hr-personalities"
@@ -196,13 +198,13 @@ def build_personality_opening(
     personality_id: str | None,
     scene_opening_line: str,
     salary_offer: float,
+    company_name: str = "灵创科技",
 ) -> str:
     meta = get_personality_meta(personality_id)
     prompt_file = PERSONALITIES_DIR / meta.filename
     body = prompt_file.read_text(encoding="utf-8") if prompt_file.exists() else ""
 
-    offer_str = str(int(salary_offer)) if float(salary_offer).is_integer() else str(salary_offer)
-    offer_token = f"{offer_str}K"
+    offer_token = format_salary_k(salary_offer)
 
     candidates: list[str] = []
     in_opening = False
@@ -224,8 +226,11 @@ def build_personality_opening(
 
     opening = random.choice(candidates) if candidates else ""
     if opening:
-        opening = opening.replace("月薪X", f"月薪{offer_token}").replace("薪资这块是X", f"薪资这块是{offer_token}")
-        opening = opening.replace("X——", f"{offer_token}——").replace("X，", f"{offer_token}，").replace("X", offer_token)
+        opening = apply_opening_placeholders(
+            opening,
+            offer_token=offer_token,
+            company_name=company_name,
+        )
         opening = _strip_wrapping_quotes(opening)
     elif scene_opening_line.strip():
         opening = _strip_wrapping_quotes(scene_opening_line)
