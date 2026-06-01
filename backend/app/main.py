@@ -11,6 +11,7 @@ load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 from app.api.card_game_routes import router as card_game_router
 from app.api.session_routes import router as session_router
 from app.api.voice_battle_routes import router as voice_battle_router
+from app.db import init_db
 
 
 def _cors_origins() -> list[str]:
@@ -25,10 +26,23 @@ def _cors_origins() -> list[str]:
     ]
 
 
+def _cors_origin_regex() -> str | None:
+    raw = (os.getenv("CORS_ALLOW_ORIGIN_REGEX") or "").strip()
+    return raw or None
+
+
 app = FastAPI(title="Salary Battle API", version="0.1.0")
+
+
+@app.on_event("startup")
+def startup() -> None:
+    init_db()
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins(),
+    allow_origin_regex=_cors_origin_regex(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

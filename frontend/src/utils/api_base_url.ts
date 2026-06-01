@@ -1,5 +1,3 @@
-const PROD_FALLBACK_API_BASE_URL = "https://salary-battlesalary-battle-apisalary.onrender.com";
-
 function isLocalHost(hostname: string) {
   return hostname === "127.0.0.1" || hostname === "localhost";
 }
@@ -18,10 +16,6 @@ export function resolveApiBaseUrl() {
     } catch {
       return envBase;
     }
-  }
-
-  if (!currentIsLocal && currentHost.endsWith("netlify.app")) {
-    return PROD_FALLBACK_API_BASE_URL;
   }
 
   return "";

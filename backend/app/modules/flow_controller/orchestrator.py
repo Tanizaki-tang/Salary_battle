@@ -129,12 +129,7 @@ class GameFlowOrchestrator:
 
     def settle_and_persist(self, session_state: SessionState) -> tuple[SettleResult, PersistResult]:
         settle_result = settle_session(session_state)
-        persist_result = save_session_result(
-            session_state.user_id,
-            settle_result,
-            session_state.session_id,
-            user_name=session_state.user_name,
-        )
+        persist_result = save_session_result(session_state, settle_result)
         return settle_result, persist_result
 
     @staticmethod

@@ -7,13 +7,13 @@ from fastapi import APIRouter, HTTPException
 from app.modules.card_game.card_dialogue_agent import CardDialogueAgent
 from app.modules.card_game.card_engine import CardGameEngine
 from app.prompt.hr_personality import get_personality_meta, pick_random_personality_id, resolve_personality_id
+from app.repositories.card_game_session_repository import get_card_session as load_card_session, save_card_session
 from app.shared_types.card_game_types import CardGameState, CardTurnPayload
 from app.shared_types.game_types import ApiResponse
 
 router = APIRouter(prefix="/api/v1/card-game", tags=["card-game"])
 dialogue_agent = CardDialogueAgent()
 engine = CardGameEngine(dialogue_agent=dialogue_agent)
-SESSIONS: dict[str, CardGameState] = {}
 
 
 @router.post("/sessions")
@@ -30,7 +30,7 @@ def create_card_session(payload: dict) -> ApiResponse:
     personality_meta = get_personality_meta(hr_personality_id)
     session_id = f"card_{uuid4().hex[:8]}"
     state = engine.create_initial_state(session_id, user_id, user_name, hr_personality_id)
-    SESSIONS[session_id] = state
+    save_card_session(state)
     return ApiResponse(
         data={
             "session": state.model_dump(),
@@ -46,7 +46,7 @@ def create_card_session(payload: dict) -> ApiResponse:
 
 @router.get("/sessions/{session_id}")
 def get_card_session(session_id: str) -> ApiResponse:
-    state = SESSIONS.get(session_id)
+    state = load_card_session(session_id)
     if not state:
         raise HTTPException(status_code=404, detail="session not found")
     return ApiResponse(data={"session": state.model_dump()})
@@ -54,27 +54,27 @@ def get_card_session(session_id: str) -> ApiResponse:
 
 @router.post("/sessions/{session_id}/turn")
 def card_turn(session_id: str, payload: CardTurnPayload) -> ApiResponse:
-    state = SESSIONS.get(session_id)
+    state = load_card_session(session_id)
     if not state:
         raise HTTPException(status_code=404, detail="session not found")
     try:
         next_state, result = engine.play_turn(state, payload.strategy, payload.player_text)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    SESSIONS[session_id] = next_state
+    save_card_session(next_state)
     return ApiResponse(data={"result": result.model_dump(), "session": next_state.model_dump()})
 
 
 @router.post("/sessions/{session_id}/accept")
 def accept_offer(session_id: str) -> ApiResponse:
-    state = SESSIONS.get(session_id)
+    state = load_card_session(session_id)
     if not state:
         raise HTTPException(status_code=404, detail="session not found")
     try:
         next_state, outcome, reason = engine.accept_offer(state)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    SESSIONS[session_id] = next_state
+    save_card_session(next_state)
     return ApiResponse(
         data={
             "session": next_state.model_dump(),
@@ -86,12 +86,13 @@ def accept_offer(session_id: str) -> ApiResponse:
 
 @router.post("/sessions/{session_id}/settle")
 def settle_card_game(session_id: str) -> ApiResponse:
-    state = SESSIONS.get(session_id)
+    state = load_card_session(session_id)
     if not state:
         raise HTTPException(status_code=404, detail="session not found")
     if state.status == "ongoing":
         state = state.model_copy(update={"status": "forced_settle", "outcome": "forced_deal"})
-        SESSIONS[session_id] = state
+        save_card_session(state)
     result = engine.settle(state)
-    SESSIONS[session_id] = state.model_copy(update={"status": "settled"})
-    return ApiResponse(data={"result": result.model_dump(), "session": SESSIONS[session_id].model_dump()})
+    persisted_state = state.model_copy(update={"status": "settled"})
+    save_card_session(persisted_state)
+    return ApiResponse(data={"result": result.model_dump(), "session": persisted_state.model_dump()})

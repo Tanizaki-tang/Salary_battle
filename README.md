@@ -6,7 +6,7 @@
 
 - 主链路：`StartPage → BattlePage → ResultPage`
 - API：`POST /sessions`、`/text-turn`、`/settle`
-- 已有后端：健康检查、开局、文字回合、结算与落库
+- 已有后端：健康检查、开局、文字回合、结算与落库（支持 `PostgreSQL`，未配置时本地回退到 `SQLite`）
 - 已有前端：开始页、对话页、结果页 + `api/mock` 双适配器
 
 ## 目录结构
@@ -26,7 +26,7 @@ Salary_battle/
 │  │  └─ main.py
 │  ├─ scripts/
 │  ├─ requirements.txt
-│  └─ app.db
+│  └─ app.db                  # 未配置 DATABASE_URL 时的本地回退库
 ├─ frontend/
 │  ├─ src/pages/
 │  ├─ src/runtime/               # api/mock 适配器
@@ -54,6 +54,12 @@ SCENARIO_GM_PATH=D:\path\to\custom_gm.md
 cd backend
 python -m pip install -r requirements.txt
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+推荐先在根目录 `.env` 配置正式数据库：
+
+```env
+DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/salary_battle
 ```
 
 健康检查：
@@ -108,3 +114,4 @@ docker run --rm -p 8000:8000 --name salary-battle-api salary-battle-api:latest
 
 - 技术方案：`develop_documents/技术方案-劳资拉扯模拟器.md`
 - 在线版架构：`develop_documents/项目架构与核心链路-在线版.md`
+- 部署指南：`develop_documents/部署指南-Render-Netlify.md`

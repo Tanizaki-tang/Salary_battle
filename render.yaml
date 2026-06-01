@@ -7,10 +7,22 @@ services:
     autoDeploy: true
     healthCheckPath: /api/v1/health
     envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: salary-battle-db
+          property: connectionString
+      - key: BAILIAN_API_KEY
+        sync: false
+      - key: DASHSCOPE_API_KEY
+        sync: false
       - key: API_HOST
         value: 0.0.0.0
       - key: API_PORT
         value: 8000
+      - key: CORS_ALLOW_ORIGIN_REGEX
+        value: https://.*\.netlify\.app
+      - key: CORS_ALLOW_ORIGINS
+        sync: false
       - key: VOICE_BATTLE_ASR_PROVIDER
         value: cloud
       - key: QWEN_ASR_MODEL
@@ -31,3 +43,8 @@ services:
         value: lite
       - key: VITE_APP_VARIANT
         value: prod
+databases:
+  - name: salary-battle-db
+    databaseName: salary_battle
+    user: salary_battle
+    plan: free

@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 
 from app.modules.flow_controller.orchestrator import GameFlowOrchestrator
 from app.repositories.scene_repository import load_scene, resolve_scene_id
+from app.repositories.session_repository import get_text_session, save_text_session
 from app.prompt.hr_personality import (
     apply_personality_patience,
     build_personality_opening,
@@ -25,7 +26,6 @@ from app.shared_types.game_types import ApiResponse, ConversationMessage, Sessio
 
 router = APIRouter(prefix="/api/v1", tags=["game"])
 orchestrator = GameFlowOrchestrator()
-SESSIONS: dict[str, SessionState] = {}
 logger = logging.getLogger(__name__)
 
 
@@ -73,7 +73,7 @@ def create_session_data(payload: dict, *, max_round_override: int | None = None)
         ],
         scene_context=scene_context,
     )
-    SESSIONS[session.session_id] = session
+    save_text_session(session)
     return {
         "session": session.model_dump(),
         "hr_opening": opening_with_name,
@@ -85,6 +85,13 @@ def create_session_data(payload: dict, *, max_round_override: int | None = None)
             "emoji": personality_meta.emoji,
         },
     }
+
+
+def _get_session_or_404(session_id: str) -> SessionState:
+    session = get_text_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="session not found")
+    return session
 
 
 @router.get("/health")
@@ -109,12 +116,10 @@ def create_session(payload: dict) -> ApiResponse:
 
 @router.post("/sessions/{session_id}/text-turn")
 def text_turn(session_id: str, payload: TextTurnPayload) -> ApiResponse:
-    session = SESSIONS.get(session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="session not found")
+    session = _get_session_or_404(session_id)
     started = time.perf_counter()
     next_state, turn_result, flow = orchestrator.run_text_turn(session, payload)
-    SESSIONS[session_id] = next_state
+    save_text_session(next_state)
     if llm_latency_enabled():
         logger.info(
             "LATENCY_API_TEXT_TURN session_id=%s round=%s total_ms=%.1f",
@@ -127,16 +132,14 @@ def text_turn(session_id: str, payload: TextTurnPayload) -> ApiResponse:
 
 @router.post("/sessions/{session_id}/text-turn/stream")
 def text_turn_stream(session_id: str, payload: TextTurnPayload) -> StreamingResponse:
-    session = SESSIONS.get(session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="session not found")
+    session = _get_session_or_404(session_id)
 
     def generate():
         try:
             for event in orchestrator.iter_text_turn(session, payload):
                 if event.get("event") == "done":
                     next_state = SessionState.model_validate(event["session"])
-                    SESSIONS[session_id] = next_state
+                    save_text_session(next_state)
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
         except Exception as exc:
             logger.exception("TEXT_TURN_STREAM_FAILED session_id=%s", session_id)
@@ -156,12 +159,10 @@ def text_turn_stream(session_id: str, payload: TextTurnPayload) -> StreamingResp
 
 @router.post("/sessions/{session_id}/settle")
 def settle(session_id: str) -> ApiResponse:
-    session = SESSIONS.get(session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="session not found")
-    settle_result, persist_result = orchestrator.settle_and_persist(session)
+    session = _get_session_or_404(session_id)
     session.status = "settled"
-    SESSIONS[session_id] = session
+    save_text_session(session)
+    settle_result, persist_result = orchestrator.settle_and_persist(session)
     return ApiResponse(
         data={
             "result": settle_result.model_dump(),
