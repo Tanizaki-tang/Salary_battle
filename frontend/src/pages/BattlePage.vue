@@ -219,6 +219,8 @@
 </template>
 
 <script setup lang="ts">
+import cardBgmAsset from "@resources/music&effect/打牌阶段.mp3";
+import normalBgmAsset from "@resources/music&effect/普通阶段.mp3";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { bossAvatarUrl, playerAvatarUrl } from "../assets/avatars";
@@ -236,7 +238,6 @@ import { useBattleViewport } from "../composables/useBattleViewport";
 import { runtimeAdapter } from "../runtime";
 import type { SessionState } from "../runtime/battle_runtime_adapter";
 import { saveBattleTranscript, type TranscriptMessage } from "../utils/battle_transcript";
-import { resolveApiBaseUrl } from "../utils/api_base_url";
 
 const route = useRoute();
 const router = useRouter();
@@ -307,35 +308,13 @@ try {
   }
 } catch {}
 
-const apiBaseUrl = resolveApiBaseUrl();
-const normalBgmUrl = `${apiBaseUrl}/resources/music&effect/普通阶段.mp3`;
-const cardBgmUrl = `${apiBaseUrl}/resources/music&effect/打牌阶段.mp3`;
+const normalBgmUrl = normalBgmAsset;
+const cardBgmUrl = cardBgmAsset;
 
 type BgmState = { audio: HTMLAudioElement | null; fadeTimer: number | null; targetVolume: number };
 const normalBgm = ref<BgmState>({ audio: null, fadeTimer: null, targetVolume: bgmVolume.value });
 const cardBgm = ref<BgmState>({ audio: null, fadeTimer: null, targetVolume: bgmVolume.value });
 let bgmUnlocked = false;
-
-// #region debug-point bgm-telemetry
-const DEBUG_SERVER_URL = "http://127.0.0.1:7777/event";
-function dbg(event: string, payload: Record<string, unknown> = {}) {
-  try {
-    void fetch(DEBUG_SERVER_URL, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        sessionId: "bgm-not-playing",
-        runId: "pre",
-        hypothesisId: "H?",
-        event,
-        ts: Date.now(),
-        payload,
-      }),
-      keepalive: true,
-    });
-  } catch {}
-}
-// #endregion debug-point bgm-telemetry
 
 function clearFade(state: BgmState) {
   if (state.fadeTimer != null) {
@@ -351,23 +330,6 @@ async function ensureAudio(state: BgmState, url: string) {
   audio.preload = "auto";
   audio.volume = 0;
   state.audio = audio;
-// #region debug-point bgm-audio-events
-  dbg("bgm_audio_created", { url });
-  audio.addEventListener("playing", () => dbg("bgm_playing", { url, volume: audio.volume }), { passive: true });
-  audio.addEventListener("pause", () => dbg("bgm_pause", { url, volume: audio.volume }), { passive: true });
-  audio.addEventListener("canplaythrough", () => dbg("bgm_canplaythrough", { url, rs: audio.readyState }), { passive: true });
-  audio.addEventListener(
-    "error",
-    () =>
-      dbg("bgm_error", {
-        url,
-        code: audio.error?.code ?? null,
-        message: audio.error?.message ?? null,
-        rs: audio.readyState,
-      }),
-    { passive: true },
-  );
-// #endregion debug-point bgm-audio-events
   return audio;
 }
 
@@ -419,32 +381,15 @@ applyBgmVolumeTargets();
 async function playBgm(state: BgmState, url: string) {
   if (!bgmUnlocked) return;
   const audio = await ensureAudio(state, url);
-// #region debug-point bgm-play-attempt
-  dbg("bgm_play_attempt", {
-    url,
-    paused: audio.paused,
-    muted: audio.muted,
-    volume: audio.volume,
-    target: state.targetVolume,
-    unlocked: bgmUnlocked,
-    expanded: isExpanded.value,
-  });
-// #endregion debug-point bgm-play-attempt
   try {
     if (audio.paused) await audio.play();
     fadeVolume(state, state.targetVolume, 650);
-// #region debug-point bgm-play-ok
-    dbg("bgm_play_ok", { url, paused: audio.paused, volume: audio.volume, target: state.targetVolume });
-// #endregion debug-point bgm-play-ok
   } catch {}
 }
 
 function stopBgm(state: BgmState) {
   const audio = state.audio;
   if (!audio) return;
-// #region debug-point bgm-stop
-  dbg("bgm_stop", { volume: audio.volume, paused: audio.paused });
-// #endregion debug-point bgm-stop
   fadeVolume(state, 0, 350);
   window.setTimeout(() => {
     if (audio.volume <= 0.02) {
@@ -457,9 +402,6 @@ function stopBgm(state: BgmState) {
 function unlockBgm() {
   if (bgmUnlocked) return;
   bgmUnlocked = true;
-// #region debug-point bgm-unlock
-  dbg("bgm_unlocked", { expanded: isExpanded.value, normalBgmUrl, cardBgmUrl });
-// #endregion debug-point bgm-unlock
   if (!isExpanded.value) {
     playBgm(normalBgm.value, normalBgmUrl);
   }

@@ -74,10 +74,18 @@ class ConversationMessage(BaseModel):
     round_index: int = 0
 
 
+class GamePointHint(BaseModel):
+    point_id: str
+    trap_type: str
+    explanation: str
+    status: Literal["active", "resolved"] = "active"
+
+
 class SessionState(BaseModel):
     session_id: str
     user_id: str
     user_name: str = "候选人"
+    interaction_mode: Literal["text", "voice"] = "text"
     hr_personality_id: str = "hr_smiling_tiger"
     scene_id: str = "scene_001"
     role_id: str = "role_backend"
@@ -92,6 +100,8 @@ class SessionState(BaseModel):
     law_citation_count: int = 0
     misjudge_count: int = 0
     identified_traps: list[str] = Field(default_factory=list)
+    active_game_point_id: str | None = None
+    resolved_game_points: list[str] = Field(default_factory=list)
     strategy_history: list[str] = Field(default_factory=list)
     conversation_history: list[ConversationMessage] = Field(default_factory=list)
     scene_context: SceneContext
@@ -110,6 +120,7 @@ class TurnResult(BaseModel):
     next_round: int
     inferred_strategy: str = "probe"
     trap_id: str | None = None
+    game_point_hint: GamePointHint | None = None
     hr_bubble_entrance: Optional[Literal["fade", "slam", "slide"]] = None
     player_bubble_entrance: Optional[Literal["fade", "slam", "slide"]] = None
 
@@ -133,6 +144,7 @@ class AgentTurnDecision(BaseModel):
     inferred_strategy: str = "probe"
     delta: TurnDelta
     trap_id: str | None = None
+    game_point_hint: GamePointHint | None = None
     next_phase_hint: NextPhase = "text"
     should_end: bool = False
     reason: str = ""

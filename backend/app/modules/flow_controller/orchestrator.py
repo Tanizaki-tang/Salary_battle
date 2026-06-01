@@ -12,6 +12,7 @@ from app.modules.flow_controller.phase_policy import decide_next_phase, resolve_
 from app.modules.flow_controller.session_state_machine import advance_game_flow
 from app.modules.flow_controller.settle_service import settle_session
 from app.service.llm_service import llm_latency_enabled
+from app.service.voice_game_point_service import apply_game_point_effects, infer_game_point_hint, sync_game_point_state
 from app.shared_types.game_types import (
     AgentTurnDecision,
     ConversationMessage,
@@ -37,9 +38,17 @@ class GameFlowOrchestrator:
         player_text = text_payload.player_text or text_payload.strategy or ""
         t0 = time.perf_counter()
         decision = self.hr_agent.decide_text_turn(session_state, player_text)
+        decision.delta = apply_game_point_effects(session_state, player_text=player_text, delta=decision.delta)
+        decision.game_point_hint = infer_game_point_hint(
+            session_state,
+            hr_reply=decision.hr_reply,
+            player_text=player_text,
+            delta=decision.delta,
+        )
         t1 = time.perf_counter()
         turn_result = self._decision_to_turn_result(session_state, decision)
         next_state = advance_game_flow(session_state, turn_result)
+        sync_game_point_state(next_state, turn_result.game_point_hint)
         t2 = time.perf_counter()
         self._append_round_history(next_state, decision.player_text_used, turn_result.hr_reply, turn_result.next_round)
         flow = decide_next_phase(next_state, decision.next_phase_hint)
@@ -99,8 +108,16 @@ class GameFlowOrchestrator:
                 traces=[],
             )
 
+        decision.delta = apply_game_point_effects(session_state, player_text=player_text, delta=decision.delta)
+        decision.game_point_hint = infer_game_point_hint(
+            session_state,
+            hr_reply=decision.hr_reply,
+            player_text=player_text,
+            delta=decision.delta,
+        )
         turn_result = self._decision_to_turn_result(session_state, decision)
         next_state = advance_game_flow(session_state, turn_result)
+        sync_game_point_state(next_state, turn_result.game_point_hint)
         self._append_round_history(next_state, decision.player_text_used, turn_result.hr_reply, turn_result.next_round)
         flow = decide_next_phase(next_state, decision.next_phase_hint)
 
@@ -144,6 +161,7 @@ class GameFlowOrchestrator:
             next_round=next_round,
             inferred_strategy=decision.inferred_strategy,
             trap_id=decision.trap_id,
+            game_point_hint=decision.game_point_hint,
         )
 
     @staticmethod

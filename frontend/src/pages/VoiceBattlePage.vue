@@ -1,5 +1,6 @@
 <template>
   <section class="vb-stage">
+    <CardGameDeltaFlash :delta="flashDeltaOverlay" :visible="showDeltaFlash" />
     <div class="phone-shell">
       <div class="phone-notch" />
       <div class="status-bar">
@@ -11,9 +12,9 @@
         <div class="call-top">
           <button type="button" class="call-back" @click="router.push('/')">‹</button>
           <div class="call-kpi">
-            <span class="kpi-chip">💰 {{ salaryHudText }}</span>
-            <span class="kpi-chip">⏱️ {{ workHoursText }}</span>
-            <span class="kpi-chip">🛡️ {{ securityText }}</span>
+            <span class="kpi-chip" :class="chipFlashClass.salary">💰 {{ salaryHudText }}</span>
+            <span class="kpi-chip" :class="chipFlashClass.hours">⏱️ {{ workHoursText }}</span>
+            <span class="kpi-chip" :class="chipFlashClass.security">🛡️ {{ securityText }}</span>
           </div>
         </div>
 
@@ -24,6 +25,14 @@
             <span>{{ statusText }}</span>
             <span v-if="running && callTimerText"> · {{ callTimerText }}</span>
           </div>
+        </div>
+
+        <div v-if="gamePointHint" class="game-point-tip" :class="gamePointHint.status === 'resolved' ? 'is-resolved' : ''">
+          <div class="game-point-tag">
+            {{ gamePointHint.status === "resolved" ? "识破成功" : "博弈点提示" }}
+          </div>
+          <div class="game-point-type">{{ gamePointHint.trap_type }}</div>
+          <div class="game-point-text">{{ gamePointHint.explanation }}</div>
         </div>
 
         <div class="call-chat-shell">
@@ -89,7 +98,9 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { bossAvatarUrl } from "../assets/avatars";
-import type { SessionState } from "../runtime/battle_runtime_adapter";
+import CardGameDeltaFlash from "../components/card-game/CardGameDeltaFlash.vue";
+import type { CardDeltaView } from "../card-game/types";
+import type { GamePointHint, SessionState } from "../runtime/battle_runtime_adapter";
 import { Pcm16MicrophoneCapture } from "../runtime/pcm16_capture";
 import { PcmStreamPlayer } from "../runtime/pcm_stream_player";
 import { connectVoiceBattle } from "../runtime/voice_battle_ws";
@@ -100,6 +111,12 @@ type VoiceBubble = {
   role: "hr" | "player";
   text: string;
   streaming: boolean;
+};
+
+type VoiceKpiDelta = {
+  salary_k: number;
+  work_hours: number;
+  security: number;
 };
 
 const route = useRoute();
@@ -121,6 +138,16 @@ let clockTimer: number | null = null;
 let callTimer: number | null = null;
 let currentPlayerBubbleId: string | null = null;
 let currentHrBubbleId: string | null = null;
+let chipFlashTimer: number | null = null;
+let deltaFlashTimer: number | null = null;
+const kpiFlashTone = ref<{ salary: "" | "good" | "bad"; hours: "" | "good" | "bad"; security: "" | "good" | "bad" }>({
+  salary: "",
+  hours: "",
+  security: "",
+});
+const voiceDeltaFlash = ref<VoiceKpiDelta | null>(null);
+const showDeltaFlash = ref(false);
+const gamePointHint = ref<GamePointHint | null>(null);
 
 const capture = new Pcm16MicrophoneCapture(16000, 40);
 const player = new PcmStreamPlayer();
@@ -170,6 +197,92 @@ const securityText = computed(() => {
   if (value == null) return "-";
   return formatMaybeFloat(Number(value));
 });
+
+const chipFlashClass = computed(() => ({
+  salary: kpiFlashTone.value.salary ? `flash-${kpiFlashTone.value.salary}` : "",
+  hours: kpiFlashTone.value.hours ? `flash-${kpiFlashTone.value.hours}` : "",
+  security: kpiFlashTone.value.security ? `flash-${kpiFlashTone.value.security}` : "",
+}));
+
+const flashDeltaOverlay = computed<CardDeltaView | null>(() => {
+  const d = voiceDeltaFlash.value;
+  if (!d) return null;
+  return {
+    satisfaction: 0,
+    salary_k: d.salary_k,
+    work_hours: d.work_hours,
+    security: d.security,
+  };
+});
+
+function asNumber(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function toSalaryK(sessionLike: SessionState | null): number | null {
+  const offer = asNumber(sessionLike?.current_salary_offer);
+  return offer == null ? null : Number((offer / 1000).toFixed(1));
+}
+
+function toWorkHours(sessionLike: SessionState | null): number | null {
+  return asNumber((sessionLike as SessionState & { work_hours?: number } | null)?.work_hours);
+}
+
+function toSecurity(sessionLike: SessionState | null): number | null {
+  return asNumber((sessionLike as SessionState & { security?: number } | null)?.security);
+}
+
+function computeVoiceKpiDelta(prev: SessionState | null, next: SessionState | null): VoiceKpiDelta | null {
+  const salaryPrev = toSalaryK(prev);
+  const salaryNext = toSalaryK(next);
+  const hoursPrev = toWorkHours(prev);
+  const hoursNext = toWorkHours(next);
+  const secPrev = toSecurity(prev);
+  const secNext = toSecurity(next);
+
+  const delta: VoiceKpiDelta = {
+    salary_k: salaryPrev == null || salaryNext == null ? 0 : Number((salaryNext - salaryPrev).toFixed(1)),
+    work_hours: hoursPrev == null || hoursNext == null ? 0 : Number((hoursNext - hoursPrev).toFixed(1)),
+    security: secPrev == null || secNext == null ? 0 : Number((secNext - secPrev).toFixed(1)),
+  };
+
+  if (delta.salary_k === 0 && delta.work_hours === 0 && delta.security === 0) {
+    return null;
+  }
+  return delta;
+}
+
+function resetKpiFlash() {
+  kpiFlashTone.value = { salary: "", hours: "", security: "" };
+}
+
+function triggerKpiEffects(next: SessionState) {
+  const delta = computeVoiceKpiDelta(session.value, next);
+  if (!delta) return;
+
+  voiceDeltaFlash.value = delta;
+  showDeltaFlash.value = false;
+  window.requestAnimationFrame(() => {
+    showDeltaFlash.value = true;
+  });
+
+  kpiFlashTone.value = {
+    salary: delta.salary_k > 0 ? "good" : delta.salary_k < 0 ? "bad" : "",
+    hours: delta.work_hours > 0 ? "good" : delta.work_hours < 0 ? "bad" : "",
+    security: delta.security > 0 ? "good" : delta.security < 0 ? "bad" : "",
+  };
+
+  if (deltaFlashTimer != null) window.clearTimeout(deltaFlashTimer);
+  deltaFlashTimer = window.setTimeout(() => {
+    showDeltaFlash.value = false;
+  }, 1450);
+
+  if (chipFlashTimer != null) window.clearTimeout(chipFlashTimer);
+  chipFlashTimer = window.setTimeout(() => {
+    resetKpiFlash();
+  }, 1200);
+}
 
 function scrollChatToBottom() {
   window.requestAnimationFrame(() => {
@@ -321,6 +434,14 @@ function stopTimers() {
     window.clearInterval(clockTimer);
     clockTimer = null;
   }
+  if (chipFlashTimer != null) {
+    window.clearTimeout(chipFlashTimer);
+    chipFlashTimer = null;
+  }
+  if (deltaFlashTimer != null) {
+    window.clearTimeout(deltaFlashTimer);
+    deltaFlashTimer = null;
+  }
 }
 
 function shutdownRealtime() {
@@ -374,7 +495,9 @@ async function startCall() {
           player.playPcm16Base64(evt.audio_b64, evt.sample_rate);
         }
       } else if (evt.type === "turn.done") {
+        triggerKpiEffects(evt.session);
         session.value = evt.session;
+        gamePointHint.value = evt.result.game_point_hint || null;
         sessionStorage.setItem("currentSession", JSON.stringify(evt.session));
         if (evt.flow?.should_end || evt.session.status === "settled") {
           finishBattleAndGoResult();
@@ -523,6 +646,25 @@ onUnmounted(() => {
   color: rgba(255, 255, 255, 0.9);
   font-size: 11px;
   font-weight: 700;
+  transition:
+    transform 0.24s ease,
+    box-shadow 0.24s ease,
+    border-color 0.24s ease,
+    background 0.24s ease;
+}
+
+.kpi-chip.flash-good {
+  animation: kpiPulseGood 0.95s cubic-bezier(0.22, 1, 0.36, 1);
+  border-color: rgba(123, 237, 159, 0.7);
+  background: rgba(123, 237, 159, 0.16);
+  box-shadow: 0 0 0 1px rgba(123, 237, 159, 0.15), 0 8px 24px rgba(123, 237, 159, 0.2);
+}
+
+.kpi-chip.flash-bad {
+  animation: kpiPulseBad 0.95s cubic-bezier(0.22, 1, 0.36, 1);
+  border-color: rgba(255, 107, 129, 0.7);
+  background: rgba(255, 107, 129, 0.16);
+  box-shadow: 0 0 0 1px rgba(255, 107, 129, 0.14), 0 8px 24px rgba(255, 107, 129, 0.2);
 }
 
 .call-contact {
@@ -565,6 +707,41 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.game-point-tip {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgba(250, 107, 61, 0.12);
+  border: 1px solid rgba(250, 107, 61, 0.26);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+}
+
+.game-point-tip.is-resolved {
+  background: rgba(46, 213, 115, 0.12);
+  border-color: rgba(46, 213, 115, 0.26);
+}
+
+.game-point-tag {
+  font-size: 11px;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.7);
+  letter-spacing: 0.08em;
+}
+
+.game-point-type {
+  margin-top: 4px;
+  font-size: 16px;
+  font-weight: 800;
+  color: #fff;
+}
+
+.game-point-text {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.82);
 }
 
 .chat-head {
@@ -728,6 +905,33 @@ onUnmounted(() => {
 @keyframes blink {
   50% {
     opacity: 0.25;
+  }
+}
+
+@keyframes kpiPulseGood {
+  0% {
+    transform: scale(1);
+  }
+  35% {
+    transform: translateY(-2px) scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes kpiPulseBad {
+  0% {
+    transform: scale(1);
+  }
+  20% {
+    transform: translateX(-2px) scale(1.04);
+  }
+  40% {
+    transform: translateX(2px) scale(1.04);
+  }
+  100% {
+    transform: scale(1);
   }
 }
 

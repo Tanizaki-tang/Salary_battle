@@ -5,6 +5,7 @@ from typing import Any, Literal
 from app.prompt.dialogue_style import SALARY_UNIT_RULES
 from app.prompt.salary_format import enrich_negotiation_salary_fields
 from app.shared_types.game_types import ConversationMessage, SessionState
+from app.service.voice_game_point_service import build_voice_round_guidance
 
 Role = Literal["hr", "player", "system"]
 
@@ -139,12 +140,14 @@ def build_agent_reply_payload(
         "instruction": (
             "场景与人格已在 system prompt 中。"
             "阅读 history.recent_hr_replies，确保本轮口语回复与近期 HR 话术明显不同。"
+            "如果 voice_round_guidance 不为空，优先按该 guidance 组织本轮 HR 施压点。"
             "只输出你要对候选人说的话，2-4 句，口语化。"
             f"{SALARY_UNIT_RULES}"
         ),
         "player_text": player_text.strip(),
         "history": history,
         "negotiation_state": negotiation_state,
+        "voice_round_guidance": build_voice_round_guidance(_as_session_state(session_state)),
     }
 
 

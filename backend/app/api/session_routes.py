@@ -21,6 +21,7 @@ from app.prompt.hr_personality import (
 )
 from app.service.leaderboard_service import get_leaderboard
 from app.service.llm_service import llm_latency_enabled
+from app.service.voice_game_point_service import initial_game_point_id
 from app.shared_types.game_types import ApiResponse, ConversationMessage, SessionState, TextTurnPayload
 
 
@@ -36,6 +37,7 @@ def create_session_data(payload: dict, *, max_round_override: int | None = None)
     user_name = (payload.get("user_name") or "").strip() or "候选人"
     scene_id = resolve_scene_id(scene_id=payload.get("scene_id"), role_id=payload.get("role_id"))
     role_id = payload.get("role_id") or "role_backend"
+    interaction_mode = "voice" if str(payload.get("interaction_mode") or "").strip().lower() == "voice" else "text"
     raw_personality = payload.get("hr_personality_id")
     if raw_personality is None or str(raw_personality).strip().lower() in {"", "random"}:
         hr_personality_id = pick_random_personality_id()
@@ -56,6 +58,7 @@ def create_session_data(payload: dict, *, max_round_override: int | None = None)
         session_id=f"sess_{uuid4().hex[:8]}",
         user_id=user_id,
         user_name=user_name,
+        interaction_mode=interaction_mode,
         hr_personality_id=hr_personality_id,
         role_id=role_id,
         scene_id=scene_id,
@@ -63,6 +66,7 @@ def create_session_data(payload: dict, *, max_round_override: int | None = None)
         hr_patience=apply_personality_patience(initial.hr_patience, hr_personality_id),
         info_exposure=initial.info_exposure,
         trap_count=initial.trap_count,
+        active_game_point_id=initial_game_point_id(scene_id) if interaction_mode == "voice" else None,
         current_salary_offer=scene_context.salary_anchor.hr_initial_offer,
         conversation_history=[
             ConversationMessage(

@@ -8,10 +8,11 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from app.api.session_routes import SESSIONS, create_session_data, orchestrator
+from app.api.session_routes import create_session_data, orchestrator
 from app.modules.voice_battle.dashscope_realtime_asr import DashScopeRealtimeAsr
 from app.modules.voice_battle.qwen_tts_realtime_gateway import QwenTtsRealtimeSession
 from app.modules.voice_battle.sherpa_streaming_asr import SherpaStreamingAsr
+from app.repositories.session_repository import get_text_session, save_text_session
 from app.shared_types.game_types import ApiResponse, SessionState, TextTurnPayload
 
 
@@ -62,13 +63,15 @@ def _drain_tts_segments(buffer: str, *, force: bool = False) -> tuple[list[str],
 
 @router.post("/voice-battle/sessions")
 def create_voice_session(payload: dict) -> ApiResponse:
-    return ApiResponse(data=create_session_data(payload, max_round_override=50))
+    voice_payload = dict(payload)
+    voice_payload["interaction_mode"] = "voice"
+    return ApiResponse(data=create_session_data(voice_payload, max_round_override=50))
 
 
 @router.websocket("/voice-battle/ws/{session_id}")
 async def voice_battle_ws(websocket: WebSocket, session_id: str) -> None:
     await websocket.accept()
-    session = SESSIONS.get(session_id)
+    session = get_text_session(session_id)
     if not session:
         await websocket.send_text(json.dumps({"type": "error", "message": "session not found"}, ensure_ascii=False))
         await websocket.close(code=1008)
@@ -147,7 +150,7 @@ async def voice_battle_ws(websocket: WebSocket, session_id: str) -> None:
                     for segment in segments:
                         await asyncio.to_thread(tts.append_text, segment)
                     session = SessionState.model_validate(evt["session"])
-                    SESSIONS[session_id] = session
+                    save_text_session(session)
                     await websocket.send_text(
                         json.dumps(
                             {"type": "hr.text.done", "text": "".join(hr_text_parts)},

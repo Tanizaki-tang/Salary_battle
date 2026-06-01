@@ -10,6 +10,7 @@ export type SessionState = {
   session_id: string;
   user_id: string;
   user_name: string;
+  interaction_mode?: "text" | "voice";
   hr_personality_id?: string;
   scene_id: string;
   role_id: string;
@@ -20,7 +21,16 @@ export type SessionState = {
   info_exposure: number;
   trap_count: number;
   current_salary_offer?: number;
+  active_game_point_id?: string | null;
+  resolved_game_points?: string[];
   scene_context?: Record<string, unknown>;
+};
+
+export type GamePointHint = {
+  point_id: string;
+  trap_type: string;
+  explanation: string;
+  status: "active" | "resolved";
 };
 
 export type TurnResult = {
@@ -29,6 +39,7 @@ export type TurnResult = {
   is_trap_hit: boolean;
   is_game_over: boolean;
   next_round: number;
+  game_point_hint?: GamePointHint | null;
   /** 横屏 HR 气泡出场：fade | slam | slide */
   hr_bubble_entrance?: string;
   /** 横屏玩家气泡出场：fade | slam | slide */
