@@ -26,7 +26,7 @@ export function connectVoiceBattle(sessionId: string, handlers: VoiceBattleHandl
   const ws = new WebSocket(wsURL);
   ws.binaryType = "arraybuffer";
 
-  ws.onopen = () => {
+  ws.addEventListener("open", () => {
     ws.send(
       JSON.stringify({
         type: "auth",
@@ -35,7 +35,7 @@ export function connectVoiceBattle(sessionId: string, handlers: VoiceBattleHandl
         asr_sensitivity: settings.asrSensitivity,
       }),
     );
-  };
+  });
 
   ws.onmessage = (ev) => {
     if (typeof ev.data === "string") {
