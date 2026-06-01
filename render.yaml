@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: salary-battle-api
+    name: salary-battle
     runtime: docker
     plan: free
     dockerfilePath: ./Dockerfile
