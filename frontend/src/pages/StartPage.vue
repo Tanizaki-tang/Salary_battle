@@ -1,23 +1,24 @@
 <template>
   <StartPageShell
     name="HR"
-    company="灵创科技"
-    tagline="本次面试官随机分配 · 灵创科技"
+    :company="selectedScene.company"
+    :tagline="selectedScene.tagline"
     :loading="loading"
     :error="error"
     @accept="onAccept"
     @accept-voice="onAcceptVoice"
     @reset="onReset"
   >
-    <ProdStartForm ref="formRef" />
+    <ProdStartForm ref="formRef" @scene-change="onSceneChange" />
   </StartPageShell>
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
 import ProdStartForm from "../components/start/ProdStartForm.vue";
 import StartPageShell from "../components/start/StartPageShell.vue";
+import { findSceneOption } from "../constants/scenes";
 import { runtimeAdapter } from "../runtime";
 import { resolveApiBaseUrl } from "../utils/api_base_url";
 
@@ -26,6 +27,12 @@ const loading = ref(false);
 const error = ref("");
 const formRef = ref<InstanceType<typeof ProdStartForm> | null>(null);
 const baseURL = resolveApiBaseUrl();
+const selectedSceneId = ref("scene_001");
+const selectedScene = computed(() => findSceneOption(selectedSceneId.value) || findSceneOption("scene_001")!);
+
+function onSceneChange(payload: { sceneId: string }) {
+  selectedSceneId.value = payload.sceneId;
+}
 
 function onReset() {
   formRef.value?.reset();

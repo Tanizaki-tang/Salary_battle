@@ -2,41 +2,10 @@ from __future__ import annotations
 
 from typing import Final
 
+from app.repositories.scene_repository import get_scene_spec
+
 DEFAULT_SCENE_ID: Final[str] = "scene_001"
-
-_DEFAULT_TRAPS_PROMPT: Final[str] = """
-        ### 5 个预设陷阱-抛出时机任意，但不可重复抛出
-        #### 陷阱 A：先报价套话
-        - **话术方向**：你先说说你的期望吧你心里预期是多少我们根据你的期望来协商
-        - **配合话术**：常与公司有统一的薪资体系捆绑使用
-        - **陷阱本质**：诱导玩家先暴露薪资底线，增加信息暴露度
-        - **玩家识破标志**：反问能否先分享贵司的预算范围 或 拒绝先说我想先了解贵司对这个岗位的定位和预算
-        - **被识破后 HR 如何应对**：略显窘迫，给出模糊区间（如12K-18K之间），暴露度-5
-
-        #### 陷阱 B：期权画饼
-        - **话术方向**：期权这块非常有价值公司明年B轮估值至少X亿你的期权到时候值XX万现金只是一部分，期权才是大头
-        - **陷阱本质**：用不确保持的期权替代确定的现金
-        - **玩家识破标志**：指出期权在未上市前价值为零我不接受期权替代现金期权可以作为额外激励，但不能替代基本薪资
-        - **被识破后 HR 如何应对**：承认期权有风险，但强调公司前景，同时在现金部分做出让步（+1K~2K）
-
-        #### 陷阱 C：加班费打包
-        - **话术方向**：加班费含在总包里14薪已经把加班考虑进去了我们弹性工作制，不算加班
-        - **陷阱本质**：违反劳动法，加班费必须单独计算
-        - **玩家识破标志**：引用《劳动法》第44条 或 明确要求加班费单独计算并写入合同
-        - **被识破后 HR 如何应对**：收敛态度，表示可以谈，同意在合同中明确加班费计算方式
-
-        #### 陷阱 D：社保模糊化
-        - **话术方向**：五险一金按标准交大家都这样你放心，该交的都交社保公积金正常缴纳
-        - **陷阱本质**：按标准=按最低基数缴纳，而非实际工资
-        - **玩家识破标志**：追问缴纳基数是实际工资还是最低基数公积金比例具体是多少能在合同中写明基数和比例吗
-        - **被识破后 HR 如何应对**：如果是强势/法条引用型玩家，同意按实际工资全额缴纳。如果是妥协型玩家，坚持最低基数但给一个模糊的入职后可以调整承诺。
-
-        #### 陷阱 E：试用期画饼
-        - **话术方向**：试用期6个月打八折，过了根据表现调整转正后我们会review薪资表现好的话转正大幅加薪
-        - **陷阱本质**：根据表现调整无合同约束力，口头承诺可反悔
-        - **玩家识破标志**：要求合同中写明考核标准和调薪幅度试用期长度能否缩短试用期工资不低于正式80%是法定，调薪需要写进合同
-        - **被识破后 HR 如何应对**：同意缩短试用期至2-3个月，或在合同中加入调薪条款
-
+TRAP_RULES_FOOTER: Final[str] = """
         ### 陷阱检测规则（AI 内部）
 
         AI 在每轮回复后需要判断：**玩家本轮是否识破了某个陷阱？**
@@ -51,13 +20,26 @@ _DEFAULT_TRAPS_PROMPT: Final[str] = """
         > ⚠️ 同一陷阱只计算一次。如果玩家反复识破同一陷阱，只计第一次。
 """
 
-_TRAPS_PROMPTS: dict[str, str] = {
-    "scene_001": _DEFAULT_TRAPS_PROMPT,
-    "scene_002": _DEFAULT_TRAPS_PROMPT,
-    "scene_003": _DEFAULT_TRAPS_PROMPT,
-}
+
+def _build_trap_section(scene_id: str) -> str:
+    spec = get_scene_spec(scene_id)
+    traps = spec.get("traps", [])
+    lines = [f"        ### {len(traps)} 个预设博弈点-{spec['scene_name']}"]
+    for trap in traps:
+        talking_points = "、".join(trap["talking_points"])
+        lines.extend(
+            [
+                f"        #### 陷阱 {trap['trap_id']}：{trap['label']}",
+                f"        - **话术方向**：{talking_points}",
+                f"        - **陷阱本质**：{trap['essence']}",
+                f"        - **玩家识破标志**：{trap['player_break_signal']}",
+                f"        - **被识破后 HR 如何应对**：{trap['hr_adjustment_after_break']}",
+                "",
+            ]
+        )
+    return "\n".join(lines).rstrip()
 
 def get_traps_prompt(scene_id: str | None) -> str:
     sid = (scene_id or "").strip() or DEFAULT_SCENE_ID
-    return _TRAPS_PROMPTS.get(sid, _TRAPS_PROMPTS[DEFAULT_SCENE_ID])
-
+    body = _build_trap_section(sid)
+    return f"{body}\n\n{TRAP_RULES_FOOTER}".rstrip()

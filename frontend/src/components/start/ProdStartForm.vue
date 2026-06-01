@@ -15,7 +15,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import { SCENE_OPTIONS, findSceneOption } from "../../constants/scenes";
 
 export type StartSessionParams = {
@@ -26,6 +26,18 @@ export type StartSessionParams = {
 
 const userName = ref("");
 const sceneId = ref("scene_001");
+
+const emit = defineEmits<{
+  sceneChange: [payload: { sceneId: string }];
+}>();
+
+watch(
+  sceneId,
+  (value) => {
+    emit("sceneChange", { sceneId: value });
+  },
+  { immediate: true },
+);
 
 function reset() {
   userName.value = "";

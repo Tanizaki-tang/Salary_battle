@@ -1,0 +1,368 @@
+{
+  "generated_from": "scene_storyies/*.md",
+  "scenes": [
+    {
+      "scene_id": "scene_001",
+      "scene_name": "初创公司后端岗",
+      "company": "灵创科技",
+      "tagline": "A轮 AI/大模型创业公司 · 预算灵活但喜欢画饼",
+      "role_id": "role_backend",
+      "role_label": "后端开发",
+      "role_hint": "后端开发求职者",
+      "city": "上海",
+      "difficulty": 2,
+      "opening_line": "你好！我们给你的初始 offer 是 15K*14，你怎么看？",
+      "salary_anchor": {
+        "legal_floor": 8000,
+        "market_fair": 18000,
+        "ideal_target": 25000,
+        "hr_initial_offer": 15000
+      },
+      "initial_state": {
+        "max_round": 8,
+        "hr_patience": 80,
+        "info_exposure": 20,
+        "trap_count": 0
+      },
+      "score_profile": {
+        "dq_weight": 0.35,
+        "td_weight": 0.25,
+        "wh_weight": 0.2,
+        "si_weight": 0.2
+      },
+      "tone_map": {
+        "strong_push": "我们预算很紧，这个价格已经是阶段上限了。",
+        "probe": "你的问题很专业，你先说说你关心的重点。",
+        "concede": "你这个态度很好，我们可以往下聊细节。",
+        "counter_pressure": "预算区间是有的，但我先听听你的预期。"
+      },
+      "strategy_delta_map": {
+        "strong_push": {
+          "hr_patience": -8,
+          "info_exposure": 12,
+          "trap_count": 0
+        },
+        "probe": {
+          "hr_patience": -2,
+          "info_exposure": 5,
+          "trap_count": 0
+        },
+        "concede": {
+          "hr_patience": 3,
+          "info_exposure": 18,
+          "trap_count": 0
+        },
+        "counter_pressure": {
+          "hr_patience": -3,
+          "info_exposure": -5,
+          "trap_count": 1
+        }
+      },
+      "traps": [
+        {
+          "trap_id": "A",
+          "label": "谁先报价",
+          "talking_points": [
+            "你先说说你的期望",
+            "我们根据你的预期来协商",
+            "先看你的预算要求"
+          ],
+          "essence": "诱导玩家先暴露薪资底线，增加信息暴露度。",
+          "player_break_signal": "拒绝先报价，并追问岗位预算区间、薪资结构或公司定位。",
+          "hr_adjustment_after_break": "略显窘迫，开始给出模糊区间或更多预算信息。"
+        },
+        {
+          "trap_id": "B",
+          "label": "期权画饼",
+          "talking_points": [
+            "期权非常有价值",
+            "总包要看现金加期权",
+            "现金不是全部，未来空间更大"
+          ],
+          "essence": "用不确定的期权替代确定现金。",
+          "player_break_signal": "明确把现金和期权分开谈，拒绝期权替代基本薪资。",
+          "hr_adjustment_after_break": "承认期权有风险，并在现金部分做出更实质的让步。"
+        },
+        {
+          "trap_id": "C",
+          "label": "加班费打包",
+          "talking_points": [
+            "14薪已经考虑加班",
+            "弹性工作制不单算加班",
+            "创业公司一般不这么细谈"
+          ],
+          "essence": "把必须单独计算的加班成本打包进总包。",
+          "player_break_signal": "引用劳动法或明确要求加班费单独计算并写入合同。",
+          "hr_adjustment_after_break": "收敛态度，转为同意明确加班费计算方式。"
+        },
+        {
+          "trap_id": "D",
+          "label": "五险一金模糊",
+          "talking_points": [
+            "按标准交",
+            "该有的都有",
+            "社保公积金正常缴纳"
+          ],
+          "essence": "用模糊表述掩盖按最低基数缴纳的事实。",
+          "player_break_signal": "追问基数、比例、是否按实际工资缴纳，以及能否写入合同。",
+          "hr_adjustment_after_break": "必须给出更具体的基数或比例承诺，难以继续模糊。"
+        },
+        {
+          "trap_id": "E",
+          "label": "试用期画饼",
+          "talking_points": [
+            "试用期 6 个月打八折",
+            "转正后根据表现再调",
+            "行业里都这么做"
+          ],
+          "essence": "把没有约束力的口头承诺包装成未来补偿。",
+          "player_break_signal": "要求把考核标准、调薪幅度或试用期时长写进合同。",
+          "hr_adjustment_after_break": "转向讨论缩短试用期或补充书面条款。"
+        }
+      ],
+      "source_path": "scene_storyies/scenario-tech-startup.md"
+    },
+    {
+      "scene_id": "scene_002",
+      "scene_name": "中型企业运营岗",
+      "company": "云帆科技",
+      "tagline": "B轮电商/SaaS公司 · 体系压价与绩效拆分",
+      "role_id": "role_ops",
+      "role_label": "电商运营",
+      "role_hint": "电商运营候选人",
+      "city": "杭州",
+      "difficulty": 3,
+      "opening_line": "这边先给到 10K，结构是 7K 基础 + 3K 绩效，13薪，你先看看。",
+      "salary_anchor": {
+        "legal_floor": 7000,
+        "market_fair": 12000,
+        "ideal_target": 15000,
+        "hr_initial_offer": 10000
+      },
+      "initial_state": {
+        "max_round": 8,
+        "hr_patience": 80,
+        "info_exposure": 20,
+        "trap_count": 0
+      },
+      "score_profile": {
+        "dq_weight": 0.35,
+        "td_weight": 0.25,
+        "wh_weight": 0.2,
+        "si_weight": 0.2
+      },
+      "tone_map": {
+        "strong_push": "运营岗这边是有职级带宽的，不是你想加多少就能加多少。",
+        "probe": "你可以继续问细一点，我们把基础、绩效和保障拆开聊。",
+        "concede": "如果你更看重稳定到手和保护期，这边可以往体系内帮你争取。",
+        "counter_pressure": "同批岗位都按体系走，但如果你的价值够硬，我们也不是完全不能谈。"
+      },
+      "strategy_delta_map": {
+        "strong_push": {
+          "hr_patience": -7,
+          "info_exposure": 9,
+          "trap_count": 0
+        },
+        "probe": {
+          "hr_patience": -2,
+          "info_exposure": 4,
+          "trap_count": 1
+        },
+        "concede": {
+          "hr_patience": 3,
+          "info_exposure": 13,
+          "trap_count": 0
+        },
+        "counter_pressure": {
+          "hr_patience": -5,
+          "info_exposure": -5,
+          "trap_count": 1
+        }
+      },
+      "traps": [
+        {
+          "trap_id": "A",
+          "label": "绩效占比膨胀",
+          "talking_points": [
+            "总包看起来不低",
+            "绩效好的话远超这个数",
+            "团队平均都能拿满"
+          ],
+          "essence": "用浮动绩效掩盖基础工资偏低。",
+          "player_break_signal": "要求确认基础工资保底数字，或要求把保底月薪写进合同。",
+          "hr_adjustment_after_break": "必须承认基础工资锚点，减少继续用绩效膨胀报价。"
+        },
+        {
+          "trap_id": "B",
+          "label": "五险一金基数体系化包装",
+          "talking_points": [
+            "公司统一体系",
+            "按标准缴纳",
+            "绝对合规"
+          ],
+          "essence": "用制度包装按最低基数缴纳，而不是按实际工资缴纳。",
+          "player_break_signal": "追问具体基数，算出与实际工资差额，或要求写入合同。",
+          "hr_adjustment_after_break": "不能再泛泛说合规，必须给出数字层面的回应。"
+        },
+        {
+          "trap_id": "C",
+          "label": "岗位定级压价",
+          "talking_points": [
+            "你目前只能定 P2",
+            "P2 区间就是这个数",
+            "P3 需要更多经验"
+          ],
+          "essence": "把薪资问题包装成不可质疑的职级结论。",
+          "player_break_signal": "拿项目经验和能力匹配更高职级，并要求重新评估定级。",
+          "hr_adjustment_after_break": "至少要解释定级依据，或给区间上沿。"
+        },
+        {
+          "trap_id": "D",
+          "label": "季度奖金画饼",
+          "talking_points": [
+            "去年团队季度奖很高",
+            "今年业务更好",
+            "奖金一般都不会差"
+          ],
+          "essence": "用不确定奖金填补确定现金不足。",
+          "player_break_signal": "要求说明奖金公式、KPI 与是否写入合同。",
+          "hr_adjustment_after_break": "不能再拿历史平均值当现金替代。"
+        },
+        {
+          "trap_id": "E",
+          "label": "批量招聘可替代性施压",
+          "talking_points": [
+            "这一批有很多候选人",
+            "同批条件都一样",
+            "周五统一发 offer"
+          ],
+          "essence": "用标准化招聘压低个体议价空间。",
+          "player_break_signal": "明确展示自身不可替代价值，不被同批标准化带偏。",
+          "hr_adjustment_after_break": "不能继续只用大家都一样来拒绝个性化要求。"
+        }
+      ],
+      "source_path": "scene_storyies/scenario-mid-company-ops.md"
+    },
+    {
+      "scene_id": "scene_003",
+      "scene_name": "大厂管培生",
+      "company": "星辰集团",
+      "tagline": "上市互联网平台 · 统一批发价与福利包装",
+      "role_id": "role_trainee",
+      "role_label": "管培生",
+      "role_hint": "校招管培生候选人",
+      "city": "北京",
+      "difficulty": 4,
+      "opening_line": "这批管培生统一月薪 15K，加上房补餐补后总包大概 25 万/年，你怎么看？",
+      "salary_anchor": {
+        "legal_floor": 10000,
+        "market_fair": 20000,
+        "ideal_target": 22000,
+        "hr_initial_offer": 15000
+      },
+      "initial_state": {
+        "max_round": 8,
+        "hr_patience": 85,
+        "info_exposure": 20,
+        "trap_count": 0
+      },
+      "score_profile": {
+        "dq_weight": 0.25,
+        "td_weight": 0.3,
+        "wh_weight": 0.2,
+        "si_weight": 0.25
+      },
+      "tone_map": {
+        "strong_push": "这批管培生是统一标准，月薪上的弹性确实很有限。",
+        "probe": "你可以继续问细一点，我把总包、福利和流程拆给你听。",
+        "concede": "如果你更在意长期保障，我们可以优先聊竞业、房补和签字费空间。",
+        "counter_pressure": "大厂流程不会因为情绪改标准，但如果你知道自己要争什么，我们可以具体看。"
+      },
+      "strategy_delta_map": {
+        "strong_push": {
+          "hr_patience": -5,
+          "info_exposure": 7,
+          "trap_count": 0
+        },
+        "probe": {
+          "hr_patience": -1,
+          "info_exposure": 3,
+          "trap_count": 1
+        },
+        "concede": {
+          "hr_patience": 4,
+          "info_exposure": 11,
+          "trap_count": 0
+        },
+        "counter_pressure": {
+          "hr_patience": -4,
+          "info_exposure": -4,
+          "trap_count": 1
+        }
+      },
+      "traps": [
+        {
+          "trap_id": "A",
+          "label": "总包数字灌水",
+          "talking_points": [
+            "总包 25 万",
+            "房补餐补都算进去",
+            "培训价值也非常高"
+          ],
+          "essence": "把临时福利和公司成本包装成候选人长期现金收入。",
+          "player_break_signal": "要求拆分保底月薪、临时福利和非现金收益。",
+          "hr_adjustment_after_break": "不能再只拿总包压人，要回到长期现金收入讨论。"
+        },
+        {
+          "trap_id": "B",
+          "label": "竞业限制轻描淡写",
+          "talking_points": [
+            "这是行业惯例",
+            "大家都签",
+            "标准条款不用太担心"
+          ],
+          "essence": "隐藏离职后职业选择受限的真实成本。",
+          "player_break_signal": "主动追问竞业范围、竞业期限和补偿金标准。",
+          "hr_adjustment_after_break": "必须说明条款边界，不能继续装作无影响。"
+        },
+        {
+          "trap_id": "C",
+          "label": "轮岗定岗画饼",
+          "talking_points": [
+            "看表现和公司需求",
+            "去年很多人定得很好",
+            "空间很大"
+          ],
+          "essence": "未来定岗和薪资调整没有书面保障。",
+          "player_break_signal": "追问考核标准、定岗机制和薪资下限。",
+          "hr_adjustment_after_break": "需要承认定岗存在不确定性，而不是继续空泛画饼。"
+        },
+        {
+          "trap_id": "D",
+          "label": "签字费空间不主动提",
+          "talking_points": [
+            "一般没有",
+            "统一标准",
+            "搬家补贴已经很不错"
+          ],
+          "essence": "隐藏流程外的一次性补偿空间。",
+          "player_break_signal": "明确提到 sign-on bonus 或签字费，并用竞品报价施压。",
+          "hr_adjustment_after_break": "至少要承认可以帮忙问，而不是完全当作不存在。"
+        },
+        {
+          "trap_id": "E",
+          "label": "培训生身份模糊",
+          "talking_points": [
+            "都一样",
+            "培训期价值很高",
+            "不影响你后面发展"
+          ],
+          "essence": "合同身份、工龄和培训赔偿责任可能并不等同正式员工。",
+          "player_break_signal": "追问合同身份、司龄计算和培训期离职责任。",
+          "hr_adjustment_after_break": "必须明确合同中的真实身份与约束条款。"
+        }
+      ],
+      "source_path": "scene_storyies/scenario-bigcorp-trainee.md"
+    }
+  ]
+}

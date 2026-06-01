@@ -110,6 +110,21 @@ docker run --rm -p 8000:8000 --name salary-battle-api salary-battle-api:latest
 
 见根目录 `API接口文档-劳资拉扯模拟器.md`。
 
+## 场景配置生成
+
+- 三个正式场景的结构化元数据写在 `scene_storyies/scenario-*.md` 顶部的 `scene-spec` 代码块中。
+- 生成命令：
+
+```bash
+python scripts/build_scene_specs.py
+```
+
+- 该命令会生成：
+  - `backend/app/generated/scene_specs.json`
+  - `frontend/src/generated/scene_specs.ts`
+- 当前 `backend/app/repositories/scene_repository.py` 和 `frontend/src/constants/scenes.ts` 都读取生成产物，不再手写重复场景配置。
+- 修改 `scene_storyies/*.md` 中的结构化元数据后，记得重新运行一次生成脚本。
+
 ## 文档索引
 
 - 技术方案：`develop_documents/技术方案-劳资拉扯模拟器.md`

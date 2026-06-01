@@ -165,6 +165,15 @@ class OfferPackage(BaseModel):
     housing_fund_ratio: str
     overtime_policy: str
     working_hours_agreement: str
+    base_salary: int | None = None
+    performance_salary: int | None = None
+    annual_bonus_months: int | None = None
+    performance_protection_months: int | None = None
+    quarterly_bonus_clause: str | None = None
+    signing_bonus: int | None = None
+    non_compete_months: int | None = None
+    housing_subsidy_months: int | None = None
+    package_note: str | None = None
 
 
 class SettleStats(BaseModel):

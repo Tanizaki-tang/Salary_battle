@@ -1,6 +1,6 @@
 import dialogTree from "../mock/dialog_tree.json";
 import resultRules from "../mock/result_rules.json";
-import scenario from "../mock/scenario.json";
+import { GENERATED_SCENE_SPECS } from "../generated/scene_specs";
 import type { BattleRuntimeAdapter, HrPersonalityMeta, SessionState, TextTurnStreamHandlers } from "./battle_runtime_adapter";
 import { mockStreamText } from "./text_turn_stream";
 
@@ -13,34 +13,21 @@ const MOCK_PERSONALITIES: HrPersonalityMeta[] = [
 ];
 
 const sessions = new Map<string, SessionState>();
-const roleToScene: Record<string, string> = {
-  role_backend: "scene_001",
-  role_product: "scene_002",
-  role_sales: "scene_003",
-};
-const sceneOpening: Record<string, string> = {
-  scene_001: scenario.hr_opening,
-  scene_002: "我们先给到 13K*14，绩效另算，你怎么看？",
-  scene_003: "底薪 8K，提成另计，欢迎你提问。",
-};
-const sceneInitial: Record<string, { max_round: number; hr_patience: number; info_exposure: number; trap_count: number }> = {
-  scene_001: {
-    max_round: scenario.max_round,
-    hr_patience: scenario.initial_state.hr_patience,
-    info_exposure: scenario.initial_state.info_exposure,
-    trap_count: scenario.initial_state.trap_count,
-  },
-  scene_002: { max_round: 5, hr_patience: 75, info_exposure: 25, trap_count: 0 },
-  scene_003: { max_round: 5, hr_patience: 85, info_exposure: 15, trap_count: 0 },
-};
+const DEFAULT_SCENE_ID = "scene_001";
+const roleToScene = Object.fromEntries(GENERATED_SCENE_SPECS.map((scene) => [scene.roleId, scene.sceneId])) as Record<string, string>;
+const sceneSpecsById = Object.fromEntries(GENERATED_SCENE_SPECS.map((scene) => [scene.sceneId, scene])) as Record<
+  string,
+  (typeof GENERATED_SCENE_SPECS)[number]
+>;
 
 export const mockRuntimeAdapter: BattleRuntimeAdapter = {
   async listHrPersonalities() {
     return MOCK_PERSONALITIES;
   },
   async createSession(userId, sceneId, roleId, userName, hrPersonalityId) {
-    const resolvedScene = sceneId || roleToScene[roleId || "role_backend"] || "scene_001";
-    const initial = sceneInitial[resolvedScene] || sceneInitial.scene_001;
+    const resolvedScene = sceneId || roleToScene[roleId || "role_backend"] || DEFAULT_SCENE_ID;
+    const sceneSpec = sceneSpecsById[resolvedScene] || sceneSpecsById[DEFAULT_SCENE_ID];
+    const initial = sceneSpec.initialState;
     const resolvedName = (userName || "").trim() || "候选人";
     const personalityId =
       hrPersonalityId ||
@@ -51,8 +38,8 @@ export const mockRuntimeAdapter: BattleRuntimeAdapter = {
       user_id: userId,
       user_name: resolvedName,
       hr_personality_id: personalityId,
-      scene_id: resolvedScene,
-      role_id: roleId || "role_backend",
+      scene_id: sceneSpec.sceneId,
+      role_id: roleId || sceneSpec.roleId,
       status: "ongoing",
       round_index: 1,
       max_round: initial.max_round,
@@ -63,8 +50,8 @@ export const mockRuntimeAdapter: BattleRuntimeAdapter = {
     sessions.set(session.session_id, session);
     return {
       session,
-      hr_opening: sceneOpening[resolvedScene] || sceneOpening.scene_001,
-      scene_meta: { scene_id: resolvedScene, role_hint: session.role_id },
+      hr_opening: sceneSpec.openingLine,
+      scene_meta: { scene_id: sceneSpec.sceneId, role_hint: sceneSpec.roleHint },
       hr_personality_meta: personalityMeta,
     };
   },
@@ -103,6 +90,7 @@ export const mockRuntimeAdapter: BattleRuntimeAdapter = {
   },
   async settle(sessionId) {
     const session = sessions.get(sessionId)!;
+    const sceneSpec = sceneSpecsById[session.scene_id] || sceneSpecsById[DEFAULT_SCENE_ID];
     const final_score = Math.max(0, Math.min(100, Math.round(session.hr_patience * 0.5 + (100 - session.info_exposure) * 0.3 + session.trap_count * 10)));
     const dq = Math.min(100, Math.round((final_score * 0.9)));
     const td = Math.min(100, session.trap_count * 25 + 10);
@@ -119,8 +107,8 @@ export const mockRuntimeAdapter: BattleRuntimeAdapter = {
         review_tip: resultRules.review_tip,
         title,
         medal,
-        scene_name: "初创公司后端岗",
-        summary: `你接受了 ${salaryK}K 的 offer。在初创公司后端岗，这是一个相当不错的结果。`,
+        scene_name: sceneSpec.sceneName,
+        summary: `你接受了 ${salaryK}K 的 offer。在${sceneSpec.sceneName}里，这是一个相当不错的结果。`,
         breakdown: { dq, td, wh, si },
         offer: {
           equity_ratio: 0,
@@ -132,7 +120,7 @@ export const mockRuntimeAdapter: BattleRuntimeAdapter = {
         stats: {
           traps_identified: session.trap_count,
           traps_total: 5,
-          trap_labels: ["期权画饼", "加班费打包"].slice(0, session.trap_count),
+          trap_labels: sceneSpec.traps.map((trap) => trap.label).slice(0, session.trap_count),
           law_citation_count: 0,
           strategy_count: 2,
           final_patience: session.hr_patience,

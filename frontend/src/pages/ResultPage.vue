@@ -276,6 +276,20 @@ const salaryText = computed(() => {
   return `${Math.round(result.value.final_salary / 1000)}K / 月`;
 });
 
+const sceneId = computed(() => {
+  const raw = sessionStorage.getItem("currentSession");
+  if (!raw) return "";
+  try {
+    const parsed = JSON.parse(raw) as { scene_id?: string };
+    return parsed.scene_id || "";
+  } catch {
+    return "";
+  }
+});
+
+const isOpsScene = computed(() => sceneId.value === "scene_002" || result.value?.scene_name?.includes("运营"));
+const isTraineeScene = computed(() => sceneId.value === "scene_003" || result.value?.scene_name?.includes("管培"));
+
 const equityText = computed(() => {
   const ratio = result.value?.offer?.equity_ratio ?? 0;
   return `${(ratio * 100).toFixed(1)}%`;
@@ -283,6 +297,26 @@ const equityText = computed(() => {
 
 const offerRows = computed(() => {
   const offer = result.value?.offer;
+  if (isOpsScene.value) {
+    return [
+      { icon: "💵", label: "基础工资", value: offer?.base_salary ? `${Math.round(offer.base_salary / 1000)}K / 月` : "待确认" },
+      { icon: "📊", label: "绩效工资", value: offer?.performance_salary ? `${Math.round(offer.performance_salary / 1000)}K / 月` : "待确认" },
+      { icon: "🛡️", label: "绩效保护期", value: offer?.performance_protection_months ? `${offer.performance_protection_months} 个月` : "未争取到" },
+      { icon: "🎁", label: "季度奖金", value: offer?.quarterly_bonus_clause || "未写实" },
+      { icon: "🏥", label: "社保基数", value: offer?.social_security_base || "待确认" },
+      { icon: "🏠", label: "公积金", value: offer?.housing_fund_ratio || "未约定" },
+    ];
+  }
+  if (isTraineeScene.value) {
+    return [
+      { icon: "💰", label: "保底月薪", value: salaryText.value },
+      { icon: "🧧", label: "签字费", value: offer?.signing_bonus ? `${Math.round(offer.signing_bonus / 1000)}K` : "未争取到" },
+      { icon: "⛓️", label: "竞业限制", value: offer?.non_compete_months ? `${offer.non_compete_months} 个月` : "未明确" },
+      { icon: "🏠", label: "房补期限", value: offer?.housing_subsidy_months ? `${offer.housing_subsidy_months} 个月` : "12 个月默认档" },
+      { icon: "🏥", label: "五险一金", value: offer?.social_security_base || "按实际工资缴纳" },
+      { icon: "📝", label: "培训/定岗", value: offer?.working_hours_agreement || "待确认" },
+    ];
+  }
   return [
     { icon: "💰", label: "最终薪资", value: salaryText.value },
     { icon: "📈", label: "期权比例", value: equityText.value },
@@ -295,6 +329,22 @@ const offerRows = computed(() => {
 
 const scoreBars = computed(() => {
   const b = result.value?.breakdown;
+  if (isOpsScene.value) {
+    return [
+      { key: "dq", label: "基础工资", value: b?.dq ?? 0, tone: "tone-gold" },
+      { key: "td", label: "压价识别", value: b?.td ?? 0, tone: "tone-orange" },
+      { key: "wh", label: "绩效拆解", value: b?.wh ?? 0, tone: "tone-blue" },
+      { key: "si", label: "基数保障", value: b?.si ?? 0, tone: "tone-green" },
+    ];
+  }
+  if (isTraineeScene.value) {
+    return [
+      { key: "dq", label: "月薪争取", value: b?.dq ?? 0, tone: "tone-gold" },
+      { key: "td", label: "博弈识别", value: b?.td ?? 0, tone: "tone-orange" },
+      { key: "wh", label: "福利空间", value: b?.wh ?? 0, tone: "tone-blue" },
+      { key: "si", label: "关系稳定", value: b?.si ?? 0, tone: "tone-green" },
+    ];
+  }
   return [
     { key: "dq", label: "成交质量", value: b?.dq ?? 0, tone: "tone-gold" },
     { key: "td", label: "陷阱识别", value: b?.td ?? 0, tone: "tone-orange" },

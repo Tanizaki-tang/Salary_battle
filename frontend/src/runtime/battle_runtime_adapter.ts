@@ -65,6 +65,15 @@ export type OfferPackage = {
   housing_fund_ratio: string;
   overtime_policy: string;
   working_hours_agreement: string;
+  base_salary?: number | null;
+  performance_salary?: number | null;
+  annual_bonus_months?: number | null;
+  performance_protection_months?: number | null;
+  quarterly_bonus_clause?: string | null;
+  signing_bonus?: number | null;
+  non_compete_months?: number | null;
+  housing_subsidy_months?: number | null;
+  package_note?: string | null;
 };
 
 export type SettleStats = {

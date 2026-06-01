@@ -2,16 +2,10 @@ from __future__ import annotations
 
 import re
 
+from app.repositories.scene_repository import get_scene_trap_labels
 from app.shared_types.game_types import OfferPackage, ScoreBreakdown, SessionState, SettleResult, SettleStats
 
 PATIENCE_REJECT_THRESHOLD = 10
-TRAP_LABELS = {
-    "A": "期权画饼",
-    "B": "五险一金模糊",
-    "C": "加班费打包",
-    "D": "工时边界模糊",
-    "E": "口头承诺不落书面",
-}
 CLAUSE_RULES = [
     (
         "social_security",
@@ -43,6 +37,11 @@ HR_FINALIZE_RE = re.compile(r"(发offer|欢迎加入|可以入职|就按这个�
 
 
 def settle_session(session_state: SessionState) -> SettleResult:
+    if session_state.scene_id == "scene_002":
+        return _settle_ops_scene(session_state)
+    if session_state.scene_id == "scene_003":
+        return _settle_trainee_scene(session_state)
+
     anchors = session_state.scene_context.salary_anchor
     score_profile = session_state.scene_context.score_profile
 
@@ -147,7 +146,7 @@ def settle_session(session_state: SessionState) -> SettleResult:
         stats=SettleStats(
             traps_identified=len(session_state.identified_traps),
             traps_total=5,
-            trap_labels=[TRAP_LABELS[t] for t in session_state.identified_traps if t in TRAP_LABELS],
+            trap_labels=_trap_labels_for_scene(session_state),
             law_citation_count=session_state.law_citation_count,
             strategy_count=len(set(session_state.strategy_history)),
             final_patience=session_state.hr_patience,
@@ -245,3 +244,234 @@ def _build_summary(*, verdict: str, rushed_deal: bool, final_salary: int, missed
         missed = "、".join(missed_clauses[:3])
         return f"你拿到了 {salary_k}K 的录用，但因为过早成交，{missed} 这些关键条款还没谈清。"
     return f"你成功把 offer 落到 {salary_k}K，并且把关键风险点谈得比较扎实。"
+
+
+def _settle_ops_scene(session_state: SessionState) -> SettleResult:
+    anchors = session_state.scene_context.salary_anchor
+    final_salary = max(anchors.legal_floor, min(anchors.ideal_target, session_state.current_salary_offer))
+    base_salary = max(7000, min(12000, final_salary - 3000))
+    performance_salary = max(2000, final_salary - base_salary)
+    text_blob = _conversation_text(session_state)
+    discussed = _detect_discussed_clauses(session_state, text_blob)
+    discussed_performance = bool(re.search(r"(绩效|保底|保底月薪|KPI|系数)", text_blob))
+    discussed_quarterly = bool(re.search(r"(季度奖|季度奖金|奖金公式|年终奖)", text_blob))
+    discussed_probation = bool(re.search(r"(试用期|打八折|缩短试用期)", text_blob))
+
+    dq = int(max(0, min(100, (base_salary - 5000) / 7000 * 100)))
+    td = int(max(0, min(100, (len(session_state.identified_traps) / 5) * 100 + session_state.law_citation_count * 5)))
+    wh = 0
+    if discussed_performance or "A" in session_state.identified_traps:
+        wh += 40
+    if discussed_quarterly or "D" in session_state.identified_traps:
+        wh += 30
+    if discussed["overtime"]:
+        wh += 30
+    si = 0
+    if discussed["social_security"] or "B" in session_state.identified_traps:
+        si += 70
+    if discussed["housing_fund"]:
+        si += 30
+    si = int(max(0, min(100, si * 1.2)))
+
+    final_score = int(dq * 0.35 + td * 0.25 + wh * 0.20 + si * 0.20 + 5)
+    if len(set(session_state.strategy_history)) >= 3:
+        final_score += 5
+    if session_state.info_exposure > 80:
+        final_score -= 10
+    final_score = max(0, min(110, final_score))
+    grade = "A" if final_score >= 80 else "B" if final_score >= 60 else "C"
+
+    verdict, outcome_reason, rushed_deal, missed_clauses = _resolve_common_outcome(session_state, discussed, extra_missed=["绩效保底", "季度奖金"] if not discussed_performance or not discussed_quarterly else [])
+    performance_protection = 6 if discussed_performance or "A" in session_state.identified_traps else 0
+    risk_notes = _build_risk_notes(verdict=verdict, rushed_deal=rushed_deal, missed_clauses=missed_clauses)
+    if not discussed_probation:
+        risk_notes.append("试用期折薪或保护期没谈实，前 3 个月实际到手可能继续被压。")
+
+    return SettleResult(
+        final_salary=final_salary,
+        final_score=final_score,
+        grade=grade,
+        review_tip=_build_ops_review_tip(final_score=final_score, td=td, wh=wh, si=si),
+        verdict=verdict,
+        outcome_reason=outcome_reason,
+        title="体系内抬价成功" if verdict == "hired" and grade == "A" else ("压价反杀" if verdict == "hired" else "体系压崩"),
+        medal="🥇" if verdict == "hired" and grade == "A" else ("🎯" if verdict == "hired" else "💥"),
+        scene_name=session_state.scene_context.meta.scene_name,
+        summary=_build_ops_summary(
+            verdict=verdict,
+            base_salary=base_salary,
+            performance_salary=performance_salary,
+            performance_protection=performance_protection,
+        ),
+        risk_notes=risk_notes,
+        missed_clauses=missed_clauses,
+        breakdown=ScoreBreakdown(dq=dq, td=td, wh=wh, si=si),
+        offer=OfferPackage(
+            equity_ratio=0.0,
+            social_security_base="按实际工资全额缴纳" if discussed["social_security"] or "B" in session_state.identified_traps else "按最低基数缴纳风险较高",
+            housing_fund_ratio="7%" if discussed["housing_fund"] else "5% 默认档",
+            overtime_policy="有明确补偿机制" if discussed["overtime"] else "默认灵活处理，不单独计算",
+            working_hours_agreement="工时与试用期边界已确认" if discussed["working_hours"] or discussed_probation else "工时/试用期边界仍偏模糊",
+            base_salary=base_salary,
+            performance_salary=performance_salary,
+            annual_bonus_months=13,
+            performance_protection_months=performance_protection,
+            quarterly_bonus_clause="公式已明确" if discussed_quarterly or "D" in session_state.identified_traps else "仅口头承诺，未写实",
+            package_note="运营岗核心不只是总包，而是基础工资、绩效保护期和岗位定级。",
+        ),
+        stats=SettleStats(
+            traps_identified=len(session_state.identified_traps),
+            traps_total=5,
+            trap_labels=_trap_labels_for_scene(session_state),
+            law_citation_count=session_state.law_citation_count,
+            strategy_count=len(set(session_state.strategy_history)),
+            final_patience=session_state.hr_patience,
+        ),
+    )
+
+
+def _settle_trainee_scene(session_state: SessionState) -> SettleResult:
+    anchors = session_state.scene_context.salary_anchor
+    final_salary = max(anchors.legal_floor, min(18000, session_state.current_salary_offer))
+    text_blob = _conversation_text(session_state)
+    discussed = _detect_discussed_clauses(session_state, text_blob)
+    discussed_compete = bool(re.search(r"(竞业|竞业限制|补偿金|竞业补偿)", text_blob))
+    discussed_signing = bool(re.search(r"(签字费|sign[ -]?on|签约费|一次性补贴|搬家费)", text_blob, re.I))
+    discussed_housing = bool(re.search(r"(房补|住房补贴|延长房补)", text_blob))
+    discussed_identity = bool(re.search(r"(培训生|正式员工|司龄|培训费|离职赔偿)", text_blob))
+
+    signing_bonus = 0
+    if discussed_signing or "D" in session_state.identified_traps:
+        signing_bonus = 10000 if len(session_state.identified_traps) < 3 else 20000
+    non_compete_months = 6 if discussed_compete or "B" in session_state.identified_traps else 12
+    housing_subsidy_months = 18 if discussed_housing or "A" in session_state.identified_traps else 12
+
+    dq = int(max(0, min(100, (final_salary - 10000) / 12000 * 100)))
+    td = int(max(0, min(100, (len(session_state.identified_traps) / 5) * 100)))
+    welfare = min(100, (signing_bonus // 5000) * 20 + max(0, (12 - non_compete_months) // 2) * 15 + max(0, (housing_subsidy_months - 12) // 3) * 10)
+    relationship = max(0, min(100, session_state.hr_patience))
+    final_score = int(dq * 0.25 + td * 0.30 + welfare * 0.25 + relationship * 0.20)
+    if len(set(session_state.strategy_history)) >= 3:
+        final_score += 5
+    if session_state.info_exposure > 80:
+        final_score -= 10
+    final_score = max(0, min(110, final_score))
+    grade = "A" if final_score >= 80 else "B" if final_score >= 60 else "C"
+
+    verdict, outcome_reason, rushed_deal, missed_clauses = _resolve_common_outcome(
+        session_state,
+        discussed,
+        extra_missed=["竞业限制", "签字费/搬家补贴", "培训生身份"] if not (discussed_compete and discussed_signing and discussed_identity) else [],
+    )
+    risk_notes = _build_risk_notes(verdict=verdict, rushed_deal=rushed_deal, missed_clauses=missed_clauses)
+    if not discussed_identity:
+        risk_notes.append("培训生身份和司龄计算没问清，后续定岗和离职成本可能比你想象更高。")
+
+    return SettleResult(
+        final_salary=final_salary,
+        final_score=final_score,
+        grade=grade,
+        review_tip=_build_trainee_review_tip(final_score=final_score, td=td, welfare=welfare),
+        verdict=verdict,
+        outcome_reason=outcome_reason,
+        title="流程里抠出空间" if verdict == "hired" and grade == "A" else ("保底上岸" if verdict == "hired" else "流程淘汰"),
+        medal="🥇" if verdict == "hired" and grade == "A" else ("🎓" if verdict == "hired" else "💥"),
+        scene_name=session_state.scene_context.meta.scene_name,
+        summary=_build_trainee_summary(
+            verdict=verdict,
+            final_salary=final_salary,
+            signing_bonus=signing_bonus,
+            non_compete_months=non_compete_months,
+        ),
+        risk_notes=risk_notes,
+        missed_clauses=missed_clauses,
+        breakdown=ScoreBreakdown(dq=dq, td=td, wh=welfare, si=relationship),
+        offer=OfferPackage(
+            equity_ratio=0.0,
+            social_security_base="按实际工资全额缴纳",
+            housing_fund_ratio="12%",
+            overtime_policy="大厂流程制，需在定岗后继续确认",
+            working_hours_agreement="培训期和轮岗安排已说明" if discussed_identity else "培训期/定岗边界仍偏模糊",
+            signing_bonus=signing_bonus,
+            non_compete_months=non_compete_months,
+            housing_subsidy_months=housing_subsidy_months,
+            package_note="大厂管培真正能谈的往往不是月薪，而是签字费、竞业条款和福利延续。",
+        ),
+        stats=SettleStats(
+            traps_identified=len(session_state.identified_traps),
+            traps_total=5,
+            trap_labels=_trap_labels_for_scene(session_state),
+            law_citation_count=session_state.law_citation_count,
+            strategy_count=len(set(session_state.strategy_history)),
+            final_patience=session_state.hr_patience,
+        ),
+    )
+
+
+def _resolve_common_outcome(
+    session_state: SessionState,
+    discussed: dict[str, bool],
+    *,
+    extra_missed: list[str] | None = None,
+) -> tuple[str, str, bool, list[str]]:
+    missed_clauses = [label for key, label, *_ in CLAUSE_RULES if not discussed[key]]
+    if extra_missed:
+        for item in extra_missed:
+            if item not in missed_clauses:
+                missed_clauses.append(item)
+    offer_accepted = _is_offer_accepted(session_state)
+    rounds_exhausted = session_state.round_index >= max(1, session_state.max_round)
+    patience_collapsed = session_state.hr_patience <= PATIENCE_REJECT_THRESHOLD
+    early_round_limit = max(3, min(6, session_state.max_round // 4 + 1))
+    rushed_deal = offer_accepted and session_state.round_index <= early_round_limit and len(missed_clauses) >= 2
+    if not offer_accepted and (patience_collapsed or rounds_exhausted):
+        if patience_collapsed:
+            return "rejected", "HR 耐心跌穿底线前，你还没把关键条件锁实，流程直接中止。", rushed_deal, missed_clauses
+        return "rejected", "谈判轮次耗尽时，关键条款仍是模糊状态，HR 没有确认最终录用。", rushed_deal, missed_clauses
+    if rushed_deal:
+        return "hired", "你虽然拿到了录用，但多个核心条款仍停留在口头层面，后续存在明显风险。", rushed_deal, missed_clauses
+    return "hired", "你在流程结束前把关键条件谈到了可执行层，成功拿到更扎实的 offer。", rushed_deal, missed_clauses
+
+
+def _trap_labels_for_scene(session_state: SessionState) -> list[str]:
+    scene_map = get_scene_trap_labels(session_state.scene_id)
+    return [scene_map[t] for t in session_state.identified_traps if t in scene_map]
+
+
+def _build_ops_review_tip(*, final_score: int, td: int, wh: int, si: int) -> str:
+    if final_score >= 85:
+        return "你把运营岗最容易被包装的部分拆开了，基础工资、绩效和基数都谈得比较清楚。"
+    if wh < 50:
+        return "这局最大短板是绩效结构没拆透，下次先盯住保底月薪和绩效保护期。"
+    if si < 50:
+        return "你对五险一金和基数追问不够，中型企业最容易在这里留坑。"
+    if td < 35:
+        return "体系压价和批量招聘的话术还没有完全识破，后面要更主动挑战职级和定级依据。"
+    return "这局已经有雏形了，下一次继续把基础工资和季度奖金公式问到写实。"
+
+
+def _build_trainee_review_tip(*, final_score: int, td: int, welfare: int) -> str:
+    if final_score >= 85:
+        return "你没有被大厂总包和光环带偏，成功把流程里的隐藏成本和补偿空间谈出来了。"
+    if welfare < 40:
+        return "这局福利侧空间挖得不够，签字费、房补延长和竞业条款其实都值得继续追问。"
+    if td < 35:
+        return "你拆总包和识别竞业限制的力度还不够，大厂场景最怕只看表面数字。"
+    return "这局思路是对的，下一次把定岗机制和培训生身份再问透一点。"
+
+
+def _build_ops_summary(*, verdict: str, base_salary: int, performance_salary: int, performance_protection: int) -> str:
+    if verdict == "rejected":
+        return f"你一度把运营岗月包谈到 {base_salary + performance_salary} 元，但基础工资和绩效保护还没锁死，最终没能拿下。"
+    if performance_protection:
+        return f"你把运营岗谈到了基础 {base_salary} 元 + 绩效 {performance_salary} 元，并额外争到了 {performance_protection} 个月绩效保护期。"
+    return f"你把运营岗谈到了基础 {base_salary} 元 + 绩效 {performance_salary} 元，但绩效保底仍建议入职前继续补谈。"
+
+
+def _build_trainee_summary(*, verdict: str, final_salary: int, signing_bonus: int, non_compete_months: int) -> str:
+    salary_k = round(final_salary / 1000, 1)
+    if verdict == "rejected":
+        return f"你识别出了一部分大厂总包水分，但还没来得及把竞业和流程空间谈实，最终止步于 {salary_k}K 月薪口径。"
+    if signing_bonus > 0:
+        return f"你把月薪稳在 {salary_k}K，还额外撬出了 {signing_bonus / 1000:.0f}K 签字费，并把竞业限制压到了 {non_compete_months} 个月。"
+    return f"你拿到了 {salary_k}K 的管培 offer，并把竞业与福利细节问到了更可控的范围。"

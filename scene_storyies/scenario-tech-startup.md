@@ -1,3 +1,90 @@
+```scene-spec
+{
+  "scene_id": "scene_001",
+  "scene_name": "初创公司后端岗",
+  "company": "灵创科技",
+  "tagline": "A轮 AI/大模型创业公司 · 预算灵活但喜欢画饼",
+  "role_id": "role_backend",
+  "role_label": "后端开发",
+  "role_hint": "后端开发求职者",
+  "city": "上海",
+  "difficulty": 2,
+  "opening_line": "你好！我们给你的初始 offer 是 15K*14，你怎么看？",
+  "salary_anchor": {
+    "legal_floor": 8000,
+    "market_fair": 18000,
+    "ideal_target": 25000,
+    "hr_initial_offer": 15000
+  },
+  "initial_state": {
+    "max_round": 8,
+    "hr_patience": 80,
+    "info_exposure": 20,
+    "trap_count": 0
+  },
+  "score_profile": {
+    "dq_weight": 0.35,
+    "td_weight": 0.25,
+    "wh_weight": 0.20,
+    "si_weight": 0.20
+  },
+  "tone_map": {
+    "strong_push": "我们预算很紧，这个价格已经是阶段上限了。",
+    "probe": "你的问题很专业，你先说说你关心的重点。",
+    "concede": "你这个态度很好，我们可以往下聊细节。",
+    "counter_pressure": "预算区间是有的，但我先听听你的预期。"
+  },
+  "strategy_delta_map": {
+    "strong_push": { "hr_patience": -8, "info_exposure": 12, "trap_count": 0 },
+    "probe": { "hr_patience": -2, "info_exposure": 5, "trap_count": 0 },
+    "concede": { "hr_patience": 3, "info_exposure": 18, "trap_count": 0 },
+    "counter_pressure": { "hr_patience": -3, "info_exposure": -5, "trap_count": 1 }
+  },
+  "traps": [
+    {
+      "trap_id": "A",
+      "label": "谁先报价",
+      "talking_points": ["你先说说你的期望", "我们根据你的预期来协商", "先看你的预算要求"],
+      "essence": "诱导玩家先暴露薪资底线，增加信息暴露度。",
+      "player_break_signal": "拒绝先报价，并追问岗位预算区间、薪资结构或公司定位。",
+      "hr_adjustment_after_break": "略显窘迫，开始给出模糊区间或更多预算信息。"
+    },
+    {
+      "trap_id": "B",
+      "label": "期权画饼",
+      "talking_points": ["期权非常有价值", "总包要看现金加期权", "现金不是全部，未来空间更大"],
+      "essence": "用不确定的期权替代确定现金。",
+      "player_break_signal": "明确把现金和期权分开谈，拒绝期权替代基本薪资。",
+      "hr_adjustment_after_break": "承认期权有风险，并在现金部分做出更实质的让步。"
+    },
+    {
+      "trap_id": "C",
+      "label": "加班费打包",
+      "talking_points": ["14薪已经考虑加班", "弹性工作制不单算加班", "创业公司一般不这么细谈"],
+      "essence": "把必须单独计算的加班成本打包进总包。",
+      "player_break_signal": "引用劳动法或明确要求加班费单独计算并写入合同。",
+      "hr_adjustment_after_break": "收敛态度，转为同意明确加班费计算方式。"
+    },
+    {
+      "trap_id": "D",
+      "label": "五险一金模糊",
+      "talking_points": ["按标准交", "该有的都有", "社保公积金正常缴纳"],
+      "essence": "用模糊表述掩盖按最低基数缴纳的事实。",
+      "player_break_signal": "追问基数、比例、是否按实际工资缴纳，以及能否写入合同。",
+      "hr_adjustment_after_break": "必须给出更具体的基数或比例承诺，难以继续模糊。"
+    },
+    {
+      "trap_id": "E",
+      "label": "试用期画饼",
+      "talking_points": ["试用期 6 个月打八折", "转正后根据表现再调", "行业里都这么做"],
+      "essence": "把没有约束力的口头承诺包装成未来补偿。",
+      "player_break_signal": "要求把考核标准、调薪幅度或试用期时长写进合同。",
+      "hr_adjustment_after_break": "转向讨论缩短试用期或补充书面条款。"
+    }
+  ]
+}
+```
+
 # 场景配置：初创公司·后端开发岗（AI Game Master v4.0）
 
 > **场景ID**: scenario_001 | **难度**: ⭐⭐ | **版本**: 4.0

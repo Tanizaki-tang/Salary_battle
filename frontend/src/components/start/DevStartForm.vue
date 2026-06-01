@@ -7,8 +7,8 @@
     角色：
     <select v-model="roleId">
       <option value="role_backend">后端开发</option>
-      <option value="role_product">产品经理</option>
-      <option value="role_sales">销售</option>
+      <option value="role_ops">电商运营</option>
+      <option value="role_trainee">管培生</option>
     </select>
   </label>
   <label class="form-field">
