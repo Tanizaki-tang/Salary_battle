@@ -1,5 +1,6 @@
 import type { BattleRuntimeAdapter, TextTurnStreamHandlers } from "./battle_runtime_adapter";
 import { streamTextTurn } from "./text_turn_stream";
+import { buildRuntimeAuthHeaders } from "../utils/app_settings";
 import { resolveApiBaseUrl } from "../utils/api_base_url";
 
 const baseURL = resolveApiBaseUrl();
@@ -22,7 +23,10 @@ export const apiRuntimeAdapter: BattleRuntimeAdapter = {
     }
     const res = await fetch(`${baseURL}/api/v1/sessions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...buildRuntimeAuthHeaders(),
+      },
       body: JSON.stringify(body),
     });
     const json = await res.json();
@@ -38,7 +42,10 @@ export const apiRuntimeAdapter: BattleRuntimeAdapter = {
   async settle(sessionId) {
     const res = await fetch(`${baseURL}/api/v1/sessions/${sessionId}/settle`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...buildRuntimeAuthHeaders(),
+      },
       body: JSON.stringify({}),
     });
     const json = await res.json();

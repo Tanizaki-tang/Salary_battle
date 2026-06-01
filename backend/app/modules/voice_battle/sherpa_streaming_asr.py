@@ -84,7 +84,13 @@ def _pick_file(model_dir: Path, *candidates: str) -> Path:
 
 
 class SherpaStreamingAsr:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        rule1_min_trailing_silence: float | None = None,
+        rule2_min_trailing_silence: float | None = None,
+        rule3_min_utterance_length: float | None = None,
+    ) -> None:
         import sherpa_onnx  # pyright: ignore[reportMissingImports]
 
         raw_dir = _resolve_model_dir()
@@ -142,9 +148,21 @@ class SherpaStreamingAsr:
         num_threads = _env_int("SHERPA_ONNX_ASR_NUM_THREADS", 2)
 
         enable_endpoint_detection = True
-        rule1 = _env_float("SHERPA_ONNX_ASR_RULE1_MIN_TRAILING_SILENCE", 2.0)
-        rule2 = _env_float("SHERPA_ONNX_ASR_RULE2_MIN_TRAILING_SILENCE", 1.0)
-        rule3 = _env_float("SHERPA_ONNX_ASR_RULE3_MIN_UTTERANCE_LENGTH", 20.0)
+        rule1 = (
+            float(rule1_min_trailing_silence)
+            if rule1_min_trailing_silence is not None
+            else _env_float("SHERPA_ONNX_ASR_RULE1_MIN_TRAILING_SILENCE", 2.0)
+        )
+        rule2 = (
+            float(rule2_min_trailing_silence)
+            if rule2_min_trailing_silence is not None
+            else _env_float("SHERPA_ONNX_ASR_RULE2_MIN_TRAILING_SILENCE", 1.0)
+        )
+        rule3 = (
+            float(rule3_min_utterance_length)
+            if rule3_min_utterance_length is not None
+            else _env_float("SHERPA_ONNX_ASR_RULE3_MIN_UTTERANCE_LENGTH", 20.0)
+        )
 
         if encoder and decoder and joiner:
             self._recognizer = sherpa_onnx.OnlineRecognizer.from_transducer(

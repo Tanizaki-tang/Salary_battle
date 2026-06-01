@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from dotenv import load_dotenv  # pyright: ignore[reportMissingImports]
+from app.service.runtime_auth import get_runtime_auth
 
 DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 DEFAULT_MODEL = "qwen-plus"
@@ -22,7 +23,11 @@ class LLMConfig:
 
 
 def load_config_from_env() -> LLMConfig:
-    api_key = os.getenv("BAILIAN_API_KEY", "").strip()
+    runtime_auth = get_runtime_auth()
+    if runtime_auth and runtime_auth.source == "user" and runtime_auth.user_api_key.strip():
+        api_key = runtime_auth.user_api_key.strip()
+    else:
+        api_key = os.getenv("BAILIAN_API_KEY", "").strip()
     if not api_key:
         raise ValueError("Environment variable `BAILIAN_API_KEY` is required.")
     base_url = os.getenv("BAILIAN_BASE_URL", DEFAULT_BASE_URL).strip() or DEFAULT_BASE_URL

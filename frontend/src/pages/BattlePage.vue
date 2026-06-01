@@ -170,6 +170,14 @@
           </div>
         </div>
 
+        <div v-if="gamePointHint" class="game-point-tip" :class="gamePointHint.status === 'resolved' ? 'is-resolved' : ''">
+          <div class="game-point-tag">
+            {{ gamePointHint.status === "resolved" ? "识破成功" : "陷阱提示" }}
+          </div>
+          <div class="game-point-type">{{ gamePointHint.trap_type }}</div>
+          <div class="game-point-text">{{ gamePointHint.explanation }}</div>
+        </div>
+
         <div ref="chatAreaRef" class="boss-chat-area">
           <div class="boss-time-divider">今天 {{ nowTime }}</div>
           <template v-for="(m, idx) in messages" :key="idx">
@@ -236,7 +244,7 @@ import { useBattleMood } from "../composables/useBattleMood";
 import { useBattleTurnCountdown } from "../composables/useBattleTurnCountdown";
 import { useBattleViewport } from "../composables/useBattleViewport";
 import { runtimeAdapter } from "../runtime";
-import type { SessionState } from "../runtime/battle_runtime_adapter";
+import type { GamePointHint, SessionState } from "../runtime/battle_runtime_adapter";
 import { saveBattleTranscript, type TranscriptMessage } from "../utils/battle_transcript";
 
 const route = useRoute();
@@ -251,6 +259,7 @@ const waitingHr = ref(false);
 
 const chatInputLocked = computed(() => loading.value || cardPreludePlaying.value || waitingHr.value);
 const session = ref<SessionState | null>(null);
+const gamePointHint = ref<GamePointHint | null>(null);
 type BattleMessage = {
   id: number;
   role: "hr" | "me" | "system";
@@ -646,6 +655,7 @@ async function runTurn(payload: {
     if (data.flow?.reason) {
       pushMessage({ role: "system", text: `💡 ${data.flow.reason}`, type: "system" });
     }
+    gamePointHint.value = data.result.game_point_hint || null;
     session.value = data.session;
     hrPersonalityMeta.value = syncHrPersonalityMeta(data.session);
     sessionStorage.setItem("currentSession", JSON.stringify(data.session));
@@ -1267,6 +1277,41 @@ const securityText = computed(() => {
   background: linear-gradient(135deg, #fafbfc 0%, #f0f4f8 100%);
   border-bottom: 1px solid #e0e6ed;
   gap: 6px;
+}
+
+.game-point-tip {
+  margin: 10px 12px 0;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(250, 107, 61, 0.08);
+  border: 1px solid rgba(250, 107, 61, 0.22);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08);
+}
+
+.game-point-tip.is-resolved {
+  background: rgba(46, 213, 115, 0.08);
+  border-color: rgba(46, 213, 115, 0.22);
+}
+
+.game-point-tag {
+  font-size: 11px;
+  font-weight: 800;
+  color: rgba(10, 22, 40, 0.6);
+  letter-spacing: 0.08em;
+}
+
+.game-point-type {
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 900;
+  color: #0a1628;
+}
+
+.game-point-text {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: rgba(10, 22, 40, 0.78);
 }
 
 .boss-hud-item {

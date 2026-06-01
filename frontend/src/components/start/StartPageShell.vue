@@ -9,8 +9,16 @@
 
       <div class="start-screen">
         <header class="start-header">
-          <p class="start-kicker">Salary Battle</p>
-          <h1 class="start-title">劳资拉扯模拟器</h1>
+          <div class="start-header-top">
+            <div>
+              <p class="start-kicker">Salary Battle</p>
+              <h1 class="start-title">劳资拉扯模拟器</h1>
+            </div>
+            <div class="start-header-actions">
+              <button type="button" class="btn-egg" aria-label="彩蛋" @click="showEgg = true">🥚</button>
+              <button type="button" class="btn-settings" aria-label="设置" @click="$emit('openSettings')">⚙</button>
+            </div>
+          </div>
           <div class="start-meta">
             <img class="start-avatar" :src="bossAvatarUrl" alt="HR" />
             <div>
@@ -43,6 +51,8 @@
           <slot />
         </div>
 
+        <p v-if="settingsStatus" class="settings-status">{{ settingsStatus }}</p>
+
         <p v-if="error" class="error">{{ error }}</p>
 
         <button type="button" class="btn-leaderboard" @click="goLeaderboard">🏆 排行榜</button>
@@ -57,15 +67,31 @@
           </button>
         </div>
       </div>
+
+      <div v-if="showEgg" class="egg-backdrop" @click.self="showEgg = false">
+        <section class="egg-modal" role="dialog" aria-modal="true" aria-label="彩蛋">
+          <header class="egg-header">
+            <div class="egg-title">彩蛋</div>
+            <button type="button" class="egg-close" aria-label="关闭" @click="showEgg = false">×</button>
+          </header>
+          <div class="egg-body">
+            <p class="egg-text">
+              这是一个诞生自黑客松的游戏！策划：KD；技术：Trae；Trae的上司：方塘。特别鸣谢另外两位没有网名的同学
+            </p>
+          </div>
+        </section>
+      </div>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
+import { ref } from "vue";
 import { useRouter } from "vue-router";
 import { bossAvatarUrl } from "../../assets/avatars";
 
 const router = useRouter();
+const showEgg = ref(false);
 
 function goLeaderboard() {
   router.push("/leaderboard");
@@ -77,12 +103,14 @@ defineProps<{
   tagline: string;
   loading?: boolean;
   error?: string;
+  settingsStatus?: string;
 }>();
 
 defineEmits<{
   accept: [];
   acceptVoice: [];
   reset: [];
+  openSettings: [];
 }>();
 </script>
 
@@ -143,6 +171,31 @@ defineEmits<{
   padding-top: 4px;
 }
 
+.start-header-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.start-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.btn-egg {
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(250, 107, 61, 0.22);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #d35400;
+  font-size: 18px;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(10, 22, 40, 0.08);
+}
+
 .start-kicker {
   margin: 0;
   font-size: 11px;
@@ -158,6 +211,73 @@ defineEmits<{
   font-weight: 800;
   color: #1a1a2e;
   line-height: 1.2;
+}
+
+.btn-settings {
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(0, 194, 162, 0.22);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #007a68;
+  font-size: 18px;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(10, 22, 40, 0.08);
+}
+
+.egg-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  background: rgba(10, 22, 40, 0.58);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+}
+
+.egg-modal {
+  width: 100%;
+  max-width: 330px;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.28);
+  overflow: hidden;
+}
+
+.egg-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.egg-title {
+  font-weight: 900;
+  color: #1a1a2e;
+}
+
+.egg-close {
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.06);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.egg-body {
+  padding: 12px 14px 14px;
+}
+
+.egg-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.7;
+  color: rgba(10, 22, 40, 0.82);
 }
 
 .start-meta {
@@ -230,6 +350,16 @@ defineEmits<{
 .selectors {
   display: grid;
   gap: 8px;
+}
+
+.settings-status {
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: 12px;
+  background: rgba(0, 194, 162, 0.08);
+  color: #0d6b5c;
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .btn-leaderboard {

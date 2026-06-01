@@ -5,7 +5,7 @@ import logging
 import time
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from app.modules.flow_controller.orchestrator import GameFlowOrchestrator
@@ -21,6 +21,7 @@ from app.prompt.hr_personality import (
 )
 from app.service.leaderboard_service import get_leaderboard
 from app.service.llm_service import llm_latency_enabled
+from app.service.runtime_auth import RuntimeAuth, require_runtime_auth, runtime_auth_scope
 from app.service.voice_game_point_service import initial_game_point_id
 from app.shared_types.game_types import ApiResponse, ConversationMessage, SessionState, TextTurnPayload
 
@@ -114,37 +115,44 @@ def leaderboard(limit: int = 50) -> ApiResponse:
 
 
 @router.post("/sessions")
-def create_session(payload: dict) -> ApiResponse:
-    return ApiResponse(data=create_session_data(payload))
+def create_session(payload: dict, auth: RuntimeAuth = Depends(require_runtime_auth)) -> ApiResponse:
+    with runtime_auth_scope(auth):
+        return ApiResponse(data=create_session_data(payload))
 
 
 @router.post("/sessions/{session_id}/text-turn")
-def text_turn(session_id: str, payload: TextTurnPayload) -> ApiResponse:
-    session = _get_session_or_404(session_id)
-    started = time.perf_counter()
-    next_state, turn_result, flow = orchestrator.run_text_turn(session, payload)
-    save_text_session(next_state)
-    if llm_latency_enabled():
-        logger.info(
-            "LATENCY_API_TEXT_TURN session_id=%s round=%s total_ms=%.1f",
-            session_id,
-            session.round_index,
-            (time.perf_counter() - started) * 1000,
-        )
-    return ApiResponse(data={"result": turn_result.model_dump(), "session": next_state.model_dump(), "flow": flow.model_dump()})
+def text_turn(session_id: str, payload: TextTurnPayload, auth: RuntimeAuth = Depends(require_runtime_auth)) -> ApiResponse:
+    with runtime_auth_scope(auth):
+        session = _get_session_or_404(session_id)
+        started = time.perf_counter()
+        next_state, turn_result, flow = orchestrator.run_text_turn(session, payload)
+        save_text_session(next_state)
+        if llm_latency_enabled():
+            logger.info(
+                "LATENCY_API_TEXT_TURN session_id=%s round=%s total_ms=%.1f",
+                session_id,
+                session.round_index,
+                (time.perf_counter() - started) * 1000,
+            )
+        return ApiResponse(data={"result": turn_result.model_dump(), "session": next_state.model_dump(), "flow": flow.model_dump()})
 
 
 @router.post("/sessions/{session_id}/text-turn/stream")
-def text_turn_stream(session_id: str, payload: TextTurnPayload) -> StreamingResponse:
+def text_turn_stream(
+    session_id: str,
+    payload: TextTurnPayload,
+    auth: RuntimeAuth = Depends(require_runtime_auth),
+) -> StreamingResponse:
     session = _get_session_or_404(session_id)
 
     def generate():
         try:
-            for event in orchestrator.iter_text_turn(session, payload):
-                if event.get("event") == "done":
-                    next_state = SessionState.model_validate(event["session"])
-                    save_text_session(next_state)
-                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            with runtime_auth_scope(auth):
+                for event in orchestrator.iter_text_turn(session, payload):
+                    if event.get("event") == "done":
+                        next_state = SessionState.model_validate(event["session"])
+                        save_text_session(next_state)
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
         except Exception as exc:
             logger.exception("TEXT_TURN_STREAM_FAILED session_id=%s", session_id)
             err = {"event": "error", "message": str(exc)}
@@ -162,16 +170,17 @@ def text_turn_stream(session_id: str, payload: TextTurnPayload) -> StreamingResp
 
 
 @router.post("/sessions/{session_id}/settle")
-def settle(session_id: str) -> ApiResponse:
-    session = _get_session_or_404(session_id)
-    session.status = "settled"
-    save_text_session(session)
-    settle_result, persist_result = orchestrator.settle_and_persist(session)
-    return ApiResponse(
-        data={
-            "result": settle_result.model_dump(),
-            "persist": persist_result.model_dump(),
-            "conversation_history": [m.model_dump() for m in session.conversation_history],
-            "user_name": session.user_name,
-        }
-    )
+def settle(session_id: str, auth: RuntimeAuth = Depends(require_runtime_auth)) -> ApiResponse:
+    with runtime_auth_scope(auth):
+        session = _get_session_or_404(session_id)
+        session.status = "settled"
+        save_text_session(session)
+        settle_result, persist_result = orchestrator.settle_and_persist(session)
+        return ApiResponse(
+            data={
+                "result": settle_result.model_dump(),
+                "persist": persist_result.model_dump(),
+                "conversation_history": [m.model_dump() for m in session.conversation_history],
+                "user_name": session.user_name,
+            }
+        )

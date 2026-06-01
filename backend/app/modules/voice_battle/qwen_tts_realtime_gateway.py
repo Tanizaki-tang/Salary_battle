@@ -7,8 +7,13 @@ import threading
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from app.service.runtime_auth import get_runtime_auth
+
 
 def _load_api_key() -> str:
+    runtime_auth = get_runtime_auth()
+    if runtime_auth and runtime_auth.source == "user" and runtime_auth.user_api_key.strip():
+        return runtime_auth.user_api_key.strip()
     api_key = (os.getenv("DASHSCOPE_API_KEY") or "").strip()
     if api_key:
         return api_key
@@ -100,4 +105,3 @@ class QwenTtsRealtimeSession:
         self._done.wait(timeout=timeout_s)
         if self._last_error:
             raise RuntimeError(self._last_error)
-

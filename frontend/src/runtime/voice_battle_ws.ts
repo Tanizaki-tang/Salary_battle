@@ -1,4 +1,5 @@
 import type { FlowDecision, SessionState, TurnResult } from "./battle_runtime_adapter";
+import { loadAppSettings } from "../utils/app_settings";
 import { resolveApiBaseUrl } from "../utils/api_base_url";
 
 export type VoiceBattleEvent =
@@ -18,11 +19,23 @@ export type VoiceBattleHandlers = {
 
 export function connectVoiceBattle(sessionId: string, handlers: VoiceBattleHandlers) {
   const baseURL = resolveApiBaseUrl();
+  const settings = loadAppSettings();
   const wsURL = baseURL
     ? toWsUrl(`${baseURL}/api/v1/voice-battle/ws/${sessionId}`)
     : toWsUrl(`${window.location.origin}/api/v1/voice-battle/ws/${sessionId}`);
   const ws = new WebSocket(wsURL);
   ws.binaryType = "arraybuffer";
+
+  ws.onopen = () => {
+    ws.send(
+      JSON.stringify({
+        type: "auth",
+        api_key: settings.userApiKey.trim(),
+        debug_password: settings.internalDebugEnabled ? settings.debugPassword.trim() : "",
+        asr_sensitivity: settings.asrSensitivity,
+      }),
+    );
+  };
 
   ws.onmessage = (ev) => {
     if (typeof ev.data === "string") {

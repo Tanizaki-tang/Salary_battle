@@ -1,4 +1,5 @@
 import type { FlowDecision, SessionState, TurnResult } from "./battle_runtime_adapter";
+import { buildRuntimeAuthHeaders } from "../utils/app_settings";
 import { resolveApiBaseUrl } from "../utils/api_base_url";
 
 export type TextTurnPayload = {
@@ -24,7 +25,10 @@ export async function streamTextTurn(
   const baseURL = resolveApiBaseUrl();
   const res = await fetch(`${baseURL}/api/v1/sessions/${sessionId}/text-turn/stream`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...buildRuntimeAuthHeaders(),
+    },
     body: JSON.stringify(payload),
   });
   if (!res.ok) {

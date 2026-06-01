@@ -7,6 +7,8 @@ import threading
 from dataclasses import dataclass
 from typing import Any
 
+from app.service.runtime_auth import get_runtime_auth
+
 
 @dataclass(slots=True)
 class AsrResult:
@@ -20,7 +22,14 @@ def _env(name: str, default: str) -> str:
     return value or default
 
 
+def _clamp_float(value: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, float(value)))
+
+
 def _load_api_key() -> str:
+    runtime_auth = get_runtime_auth()
+    if runtime_auth and runtime_auth.source == "user" and runtime_auth.user_api_key.strip():
+        return runtime_auth.user_api_key.strip()
     api_key = (os.getenv("DASHSCOPE_API_KEY") or "").strip()
     if api_key:
         return api_key
@@ -31,7 +40,13 @@ def _load_api_key() -> str:
 
 
 class DashScopeRealtimeAsr:
-    def __init__(self, *, loop: asyncio.AbstractEventLoop) -> None:
+    def __init__(
+        self,
+        *,
+        loop: asyncio.AbstractEventLoop,
+        vad_threshold: float | None = None,
+        silence_ms: int | None = None,
+    ) -> None:
         import dashscope  # pyright: ignore[reportMissingImports]
         from dashscope.audio.qwen_omni import OmniRealtimeCallback, OmniRealtimeConversation  # pyright: ignore[reportMissingImports]
         from dashscope.audio.qwen_omni.omni_realtime import MultiModality, TranscriptionParams  # pyright: ignore[reportMissingImports]
@@ -39,6 +54,16 @@ class DashScopeRealtimeAsr:
         dashscope.api_key = _load_api_key()
         self._loop = loop
         self._sample_rate = int(_env("QWEN_ASR_SAMPLE_RATE", "16000"))
+        self._vad_threshold = (
+            _clamp_float(vad_threshold, 0.0, 1.0)
+            if vad_threshold is not None
+            else float(_env("QWEN_ASR_VAD_THRESHOLD", "0.0"))
+        )
+        self._silence_ms = (
+            max(50, min(3000, int(silence_ms)))
+            if silence_ms is not None
+            else int(_env("QWEN_ASR_SILENCE_MS", "400"))
+        )
         self._partial = ""
         self._results: asyncio.Queue[AsrResult] = asyncio.Queue()
         self._ready = threading.Event()
@@ -89,8 +114,8 @@ class DashScopeRealtimeAsr:
             input_audio_transcription_model=_env("QWEN_ASR_TRANSCRIPTION_MODEL", ""),
             enable_turn_detection=True,
             turn_detection_type="server_vad",
-            turn_detection_threshold=float(_env("QWEN_ASR_VAD_THRESHOLD", "0.0")),
-            turn_detection_silence_duration_ms=int(_env("QWEN_ASR_SILENCE_MS", "400")),
+            turn_detection_threshold=self._vad_threshold,
+            turn_detection_silence_duration_ms=self._silence_ms,
             transcription_params=self._transcription_params,
         )
 
@@ -120,7 +145,12 @@ class DashScopeRealtimeAsr:
                 pass
 
     def debug_info(self) -> dict[str, Any]:
-        return {"sample_rate": self._sample_rate, "provider": "dashscope"}
+        return {
+            "sample_rate": self._sample_rate,
+            "provider": "dashscope",
+            "vad_threshold": self._vad_threshold,
+            "silence_ms": self._silence_ms,
+        }
 
     def _handle_event(self, response: dict[str, Any]) -> None:
         event_type = str(response.get("type") or "")
@@ -139,4 +169,3 @@ class DashScopeRealtimeAsr:
                 self._results.put_nowait,
                 AsrResult(partial=final_text, is_final=True, final_text=final_text),
             )
-
